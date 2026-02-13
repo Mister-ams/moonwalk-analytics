@@ -19,8 +19,13 @@ items_page = st.Page("pages/items.py", title="Items")
 revenues = st.Page("pages/revenues.py", title="Revenues")
 stops = st.Page("pages/stops.py", title="Stops")
 
+customer_report = st.Page("pages/customer_report.py", title="Customer Report")
+
 page = st.navigation(
-    [overview, customers, items_page, revenues, stops],
-    position="hidden",
+    {
+        "01 Monthly Report": [overview, customers, items_page, revenues, stops],
+        "02 Customer Report": [customer_report],
+    },
+    position="sidebar",
 )
 page.run()

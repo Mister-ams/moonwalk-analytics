@@ -150,10 +150,11 @@ def sub_card(label, value_html, change, bg_color):
 # =====================================================================
 
 COLORS = {
-    "customers": {"header": "#004D40", "sub": "#E0F2F1"},
-    "items":     {"header": "#4E342E", "sub": "#F5EBE6"},
-    "revenues":  {"header": "#4A148C", "sub": "#EDE7F6"},
-    "stops":     {"header": "#1A5276", "sub": "#E3EEF6"},
+    "customers":       {"header": "#004D40", "sub": "#E0F2F1"},
+    "items":           {"header": "#4E342E", "sub": "#F5EBE6"},
+    "revenues":        {"header": "#4A148C", "sub": "#EDE7F6"},
+    "stops":           {"header": "#1A5276", "sub": "#E3EEF6"},
+    "customer_report": {"header": "#BF360C", "sub": "#FBE9E7"},
 }
 
 METRIC_CONFIG = {
@@ -167,8 +168,17 @@ METRIC_CONFIG = {
     "items_sub":    {"key": "items_sub",    "label": "Subscriber Items",    "category": "items",     "is_currency": False},
     "rev_client":   {"key": "rev_client",   "label": "Client Revenue",      "category": "revenues",  "is_currency": True},
     "rev_sub":      {"key": "rev_sub",      "label": "Subscriber Revenue",  "category": "revenues",  "is_currency": True},
-    "deliveries":   {"key": "deliveries",   "label": "Deliveries",          "category": "stops",     "is_currency": False},
-    "pickups":      {"key": "pickups",      "label": "Pickups",             "category": "stops",     "is_currency": False},
+    "deliveries":       {"key": "deliveries",       "label": "Deliveries",          "category": "stops",           "is_currency": False, "is_percentage": False},
+    "pickups":          {"key": "pickups",          "label": "Pickups",             "category": "stops",           "is_currency": False, "is_percentage": False},
+    "active_customers": {"key": "active_customers", "label": "Active Customers",    "category": "customer_report", "is_currency": False, "is_percentage": False},
+    "new_customers":    {"key": "new_customers",    "label": "New Customers",       "category": "customer_report", "is_currency": False, "is_percentage": False},
+    "new_customer_pct":         {"key": "new_customer_pct",         "label": "New Customer %",             "category": "customer_report", "is_currency": False, "is_percentage": True},
+    "items_per_customer":        {"key": "items_per_customer",        "label": "Items per Customer",         "category": "customer_report", "is_currency": False, "is_percentage": False, "is_ratio": True},
+    "sub_items_per_customer":    {"key": "sub_items_per_customer",    "label": "Items per Subscriber",       "category": "customer_report", "is_currency": False, "is_percentage": False, "is_ratio": True},
+    "client_items_per_customer": {"key": "client_items_per_customer", "label": "Items per Client",           "category": "customer_report", "is_currency": False, "is_percentage": False, "is_ratio": True},
+    "sub_items_pct":             {"key": "sub_items_pct",             "label": "Subscriber Items %",         "category": "customer_report", "is_currency": False, "is_percentage": True},
+    "cr_items_sub":              {"key": "cr_items_sub",              "label": "Subscriber Items",           "category": "customer_report", "is_currency": False, "is_percentage": False},
+    "cr_items_client":           {"key": "cr_items_client",           "label": "Client Items",               "category": "customer_report", "is_currency": False, "is_percentage": False},
 }
 
 
@@ -178,6 +188,16 @@ METRIC_CONFIG = {
 
 def fmt_count(v):
     return f"{v:,}"
+
+
+def fmt_pct(v):
+    """Format a ratio (0.0–1.0) as a percentage string, e.g. '25.0%'."""
+    return f"{v * 100:.1f}%"
+
+
+def fmt_ratio(v):
+    """Format a decimal ratio with 1 decimal place, e.g. '4.2'."""
+    return f"{v:,.1f}"
 
 
 def fmt_dhs(v):
@@ -445,15 +465,21 @@ def get_6_month_window(selected_month, available_months):
 
 def render_trend_chart_v2(active_key, trend_data, display_months,
                           available_months, config, bar_color,
-                          show_title=True):
+                          show_title=True, height=400):
     """V2 chart: MoM annotations below date labels, taller, more bottom margin."""
     metric_key = config["key"]
     is_currency = config["is_currency"]
+    is_percentage = config.get("is_percentage", False)
+    is_ratio = config.get("is_ratio", False)
 
     labels = [format_month_label(m) for m in display_months]
     values = [trend_data.get(m, {}).get(metric_key, 0) for m in display_months]
 
-    if is_currency:
+    if is_percentage:
+        text_labels = [fmt_pct(v) for v in values]
+    elif is_ratio:
+        text_labels = [fmt_ratio(v) for v in values]
+    elif is_currency:
         text_labels = [fmt_dirham(v) for v in values]
     else:
         text_labels = [f"{v:,}" for v in values]
@@ -495,7 +521,7 @@ def render_trend_chart_v2(active_key, trend_data, display_months,
 
     fig.update_layout(
         title=dict(text=config["label"], font=dict(size=16, weight=700)) if show_title else dict(text=""),
-        height=400,
+        height=height,
         margin=dict(t=top_margin, b=110, l=50, r=30),
         paper_bgcolor="#ffffff",
         plot_bgcolor="rgba(0,0,0,0)",
@@ -504,7 +530,8 @@ def render_trend_chart_v2(active_key, trend_data, display_months,
                    fixedrange=True),
         yaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.06)",
                    tickfont=dict(size=11),
-                   tickprefix="Dhs " if is_currency else "",
+                   tickformat=".0%" if is_percentage else (".1f" if is_ratio else ""),
+                   tickprefix="" if (is_percentage or is_ratio) else ("Dhs " if is_currency else ""),
                    rangemode="tozero",
                    fixedrange=True),
         bargap=0.35,
@@ -529,8 +556,12 @@ def inject_global_styles():
         @import url('https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700&display=swap');
 
         html, body, [class*="st-"], .stMarkdown, .stSelectbox,
-        h1, h2, h3, h4, h5, h6, p, span, div, label {
+        h1, h2, h3, h4, h5, h6, p, div, label {
             font-family: 'Futura', 'Jost', 'Trebuchet MS', sans-serif !important;
+        }
+        /* Preserve Material Symbols on icon spans used by Streamlit nav */
+        span[class*="material-symbols"] {
+            font-family: 'Material Symbols Rounded' !important;
         }
 
         .stApp {
@@ -557,6 +588,14 @@ def inject_global_styles():
         div[data-testid="stPlotlyChart"] iframe,
         div[data-testid="stPlotlyChart"] > div {
             overflow: hidden !important;
+        }
+
+        /* sidebar — muted background to match app theme */
+        section[data-testid="stSidebar"] {
+            background-color: #EFEDE8;
+        }
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] {
+            padding-top: 1rem;
         }
 
         /* page_link — subtle centered nav link */
