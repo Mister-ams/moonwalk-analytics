@@ -8,7 +8,7 @@ trend chart rendering, global CSS injection, and month selector.
 import streamlit as st
 import duckdb
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 
 # =====================================================================
@@ -134,7 +134,7 @@ def sub_card(label, value_html, change, bg_color):
     """Display-only sub-card with tinted background."""
     return (
         f'<div style="background:{bg_color};border-radius:0.4rem;'
-        f'padding:0.45rem 0.4rem;text-align:center;height:110px;'
+        f'padding:0.45rem 0.4rem;text-align:center;min-height:110px;'
         f'box-shadow:0 2px 6px rgba(0,0,0,0.13);'
         f'display:flex;flex-direction:column;justify-content:center;">'
         f'<div style="font-size:0.8rem;color:#555;font-weight:600;">{label}</div>'
@@ -145,16 +145,48 @@ def sub_card(label, value_html, change, bg_color):
     )
 
 
+def detail_card(title, rows, title_color, bg_color):
+    """Render a titled detail box with key-value rows inside.
+
+    Parameters:
+        title       -- card heading text
+        rows        -- list of (label, value_html, change_html) tuples
+        title_color -- color for the heading text
+        bg_color    -- card background color
+    """
+    html = (
+        f'<div style="background:{bg_color};border-radius:0.75rem;padding:1rem;'
+        f'box-shadow:0 2px 6px rgba(0,0,0,0.1);">'
+        f'<h4 style="text-align:center;color:{title_color};font-weight:700;'
+        f'font-size:0.95rem;margin:0 0 0.6rem 0;">{title}</h4>'
+    )
+    for label, value_html, chg_html in rows:
+        html += (
+            f'<div style="display:flex;justify-content:space-between;'
+            f'align-items:center;padding:0.3rem 0.5rem;">'
+            f'<span style="font-size:0.85rem;color:#555;font-weight:600;">{label}</span>'
+            f'<span style="font-size:1.1rem;font-weight:700;">{value_html} {chg_html}</span>'
+            f'</div>'
+        )
+    html += '</div>'
+    return html
+
+
 # =====================================================================
 # COLORS & METRIC CONFIG
 # =====================================================================
 
 COLORS = {
-    "customers":       {"header": "#004D40", "sub": "#E0F2F1"},
-    "items":           {"header": "#4E342E", "sub": "#F5EBE6"},
-    "revenues":        {"header": "#4A148C", "sub": "#EDE7F6"},
-    "stops":           {"header": "#1A5276", "sub": "#E3EEF6"},
-    "customer_report": {"header": "#BF360C", "sub": "#FBE9E7"},
+    "customers":         {"header": "#004D40", "sub": "#E0F2F1"},
+    "items":             {"header": "#4E342E", "sub": "#F5EBE6"},
+    "revenues":          {"header": "#4A148C", "sub": "#EDE7F6"},
+    "stops":             {"header": "#1A5276", "sub": "#E3EEF6"},
+    "customer_report":   {"header": "#BF360C", "sub": "#FBE9E7"},
+    "customer_insights": {"header": "#BF360C", "sub": "#FBE9E7"},
+    "cohort":            {"header": "#1B5E20", "sub": "#E8F5E9"},
+    "logistics":         {"header": "#0D47A1", "sub": "#E3F2FD"},
+    "operations":        {"header": "#E65100", "sub": "#FFF3E0"},
+    "payments":          {"header": "#37474F", "sub": "#ECEFF1"},
 }
 
 METRIC_CONFIG = {
@@ -179,6 +211,71 @@ METRIC_CONFIG = {
     "sub_items_pct":             {"key": "sub_items_pct",             "label": "Subscriber Items %",         "category": "customer_report", "is_currency": False, "is_percentage": True},
     "cr_items_sub":              {"key": "cr_items_sub",              "label": "Subscriber Items",           "category": "customer_report", "is_currency": False, "is_percentage": False},
     "cr_items_client":           {"key": "cr_items_client",           "label": "Client Items",               "category": "customer_report", "is_currency": False, "is_percentage": False},
+    "rev_per_customer":          {"key": "rev_per_customer",          "label": "Revenue per Customer",       "category": "customer_report", "is_currency": True},
+    "rev_per_client":            {"key": "rev_per_client",            "label": "Revenue per Client",         "category": "customer_report", "is_currency": True},
+    "rev_per_subscriber":        {"key": "rev_per_subscriber",        "label": "Revenue per Subscriber",     "category": "customer_report", "is_currency": True},
+    "existing_customers":        {"key": "existing_customers",        "label": "Existing Customers",         "category": "customer_report", "is_currency": False},
+    "new_items":                 {"key": "new_items",                 "label": "New Customer Items",         "category": "customer_report", "is_currency": False},
+    "existing_items":            {"key": "existing_items",            "label": "Existing Customer Items",    "category": "customer_report", "is_currency": False},
+    "new_revenue":               {"key": "new_revenue",               "label": "New Customer Revenue",       "category": "customer_report", "is_currency": True},
+    "existing_revenue":          {"key": "existing_revenue",          "label": "Existing Customer Revenue",  "category": "customer_report", "is_currency": True},
+    # 02 — Customer Insights
+    "ci_active_customers":   {"key": "ci_active_customers",   "label": "Active Customers",          "category": "customer_insights", "is_currency": False},
+    "ci_multi_service":      {"key": "ci_multi_service",      "label": "Multi Service Customers",   "category": "customer_insights", "is_currency": False},
+    "ci_spend_threshold":    {"key": "ci_spend_threshold",    "label": "Spend Threshold",           "category": "customer_insights", "is_currency": True},
+    "ci_top20_spend_rev":    {"key": "ci_top20_spend_rev",    "label": "Top 20% Revenue (Spend)",   "category": "customer_insights", "is_currency": True},
+    "ci_spend_share":        {"key": "ci_spend_share",        "label": "Revenue Share (Spend)",     "category": "customer_insights", "is_currency": False, "is_percentage": True},
+    "ci_volume_threshold":   {"key": "ci_volume_threshold",   "label": "Volume Threshold",          "category": "customer_insights", "is_currency": False},
+    "ci_top20_vol_rev":      {"key": "ci_top20_vol_rev",      "label": "Top 20% Revenue (Volume)",  "category": "customer_insights", "is_currency": True},
+    "ci_volume_share":       {"key": "ci_volume_share",       "label": "Revenue Share (Volume)",    "category": "customer_insights", "is_currency": False, "is_percentage": True},
+    # 03 — Cohort Analysis
+    "m0_customers":          {"key": "m0_customers",          "label": "M0 Customers",              "category": "cohort", "is_currency": False},
+    "m0_items":              {"key": "m0_items",              "label": "M0 Items",                  "category": "cohort", "is_currency": False},
+    "m0_revenue":            {"key": "m0_revenue",            "label": "M0 Revenue",                "category": "cohort", "is_currency": True},
+    "m0_rev_per_customer":   {"key": "m0_rev_per_customer",   "label": "M0 Rev/Customer",           "category": "cohort", "is_currency": True},
+    "m0_items_per_customer": {"key": "m0_items_per_customer", "label": "M0 Items/Customer",         "category": "cohort", "is_currency": False, "is_ratio": True},
+    "m1_customers":          {"key": "m1_customers",          "label": "M1 Customers",              "category": "cohort", "is_currency": False},
+    "m1_items":              {"key": "m1_items",              "label": "M1 Items",                  "category": "cohort", "is_currency": False},
+    "m1_revenue":            {"key": "m1_revenue",            "label": "M1 Revenue",                "category": "cohort", "is_currency": True},
+    "m1_rev_per_customer":   {"key": "m1_rev_per_customer",   "label": "M1 Rev/Customer",           "category": "cohort", "is_currency": True},
+    "m1_items_per_customer": {"key": "m1_items_per_customer", "label": "M1 Items/Customer",         "category": "cohort", "is_currency": False, "is_ratio": True},
+    # 04 — Logistics
+    "lg_total_stops":        {"key": "lg_total_stops",        "label": "Total Stops",               "category": "logistics", "is_currency": False},
+    "lg_items_delivered":    {"key": "lg_items_delivered",    "label": "Items Delivered",            "category": "logistics", "is_currency": False},
+    "lg_delivery_rev_pct":   {"key": "lg_delivery_rev_pct",  "label": "Delivery Rev %",             "category": "logistics", "is_currency": False, "is_percentage": True},
+    "lg_delivery_rate":      {"key": "lg_delivery_rate",     "label": "Delivery Rate %",            "category": "logistics", "is_currency": False, "is_percentage": True},
+    "lg_deliveries":         {"key": "lg_deliveries",        "label": "Deliveries",                 "category": "logistics", "is_currency": False},
+    "lg_pickups":            {"key": "lg_pickups",           "label": "Pickups",                    "category": "logistics", "is_currency": False},
+    # 06 — Payments
+    "pm_revenue":            {"key": "pm_revenue",            "label": "Revenues",                  "category": "payments", "is_currency": True},
+    "pm_total_collections":  {"key": "pm_total_collections",  "label": "Total Collections",         "category": "payments", "is_currency": True},
+    "pm_stripe":             {"key": "pm_stripe",             "label": "Stripe",                    "category": "payments", "is_currency": True},
+    "pm_terminal":           {"key": "pm_terminal",           "label": "Terminal",                  "category": "payments", "is_currency": True},
+    "pm_cash":                {"key": "pm_cash",                "label": "Cash",                      "category": "payments", "is_currency": True},
+    "pm_avg_days_to_payment": {"key": "pm_avg_days_to_payment","label": "Avg Days To Payment",      "category": "payments", "is_currency": False, "is_ratio": True},
+    # 05 — Operations: processing efficiency
+    "ops_avg_processing_time": {"key": "ops_avg_processing_time", "label": "Avg Processing Time", "category": "operations", "is_currency": False, "is_ratio": True},
+    "ops_avg_time_in_store":   {"key": "ops_avg_time_in_store",   "label": "Avg Time In Store",   "category": "operations", "is_currency": False, "is_ratio": True},
+    # 05 — Operations: category breakdowns (5 categories x 2 metrics)
+    "cat_professional_wear_items": {"key": "cat_professional_wear_items", "label": "Professional Wear Items",   "category": "operations", "is_currency": False},
+    "cat_professional_wear_rev":   {"key": "cat_professional_wear_rev",   "label": "Professional Wear Revenue", "category": "operations", "is_currency": True},
+    "cat_traditional_wear_items":  {"key": "cat_traditional_wear_items",  "label": "Traditional Wear Items",    "category": "operations", "is_currency": False},
+    "cat_traditional_wear_rev":    {"key": "cat_traditional_wear_rev",    "label": "Traditional Wear Revenue",  "category": "operations", "is_currency": True},
+    "cat_home_linens_items":       {"key": "cat_home_linens_items",       "label": "Home Linens Items",         "category": "operations", "is_currency": False},
+    "cat_home_linens_rev":         {"key": "cat_home_linens_rev",         "label": "Home Linens Revenue",       "category": "operations", "is_currency": True},
+    "cat_extras_items":            {"key": "cat_extras_items",            "label": "Extras Items",              "category": "operations", "is_currency": False},
+    "cat_extras_rev":              {"key": "cat_extras_rev",              "label": "Extras Revenue",            "category": "operations", "is_currency": True},
+    "cat_others_items":            {"key": "cat_others_items",            "label": "Others Items",              "category": "operations", "is_currency": False},
+    "cat_others_rev":              {"key": "cat_others_rev",              "label": "Others Revenue",            "category": "operations", "is_currency": True},
+    # 05 — Operations: service type breakdowns (4 services x 2 metrics)
+    "svc_wash_and_press_items":    {"key": "svc_wash_and_press_items",    "label": "Wash & Press Items",        "category": "operations", "is_currency": False},
+    "svc_wash_and_press_rev":      {"key": "svc_wash_and_press_rev",      "label": "Wash & Press Revenue",      "category": "operations", "is_currency": True},
+    "svc_dry_cleaning_items":      {"key": "svc_dry_cleaning_items",      "label": "Dry Cleaning Items",        "category": "operations", "is_currency": False},
+    "svc_dry_cleaning_rev":        {"key": "svc_dry_cleaning_rev",        "label": "Dry Cleaning Revenue",      "category": "operations", "is_currency": True},
+    "svc_press_only_items":        {"key": "svc_press_only_items",        "label": "Press Only Items",          "category": "operations", "is_currency": False},
+    "svc_press_only_rev":          {"key": "svc_press_only_rev",          "label": "Press Only Revenue",        "category": "operations", "is_currency": True},
+    "svc_other_service_items":     {"key": "svc_other_service_items",     "label": "Other Service Items",       "category": "operations", "is_currency": False},
+    "svc_other_service_rev":       {"key": "svc_other_service_rev",       "label": "Other Service Revenue",     "category": "operations", "is_currency": True},
 }
 
 
@@ -216,6 +313,16 @@ def fmt_dhs_sub(v):
         f'style="height:1.15rem;vertical-align:baseline;margin-right:0.2rem;" '
         f'alt="Dhs" />{v:,.0f}'
     )
+
+
+def fmt_days(v):
+    """Format a float as days with 1 decimal place, e.g. '3.2 days'."""
+    return f"{v:,.1f} days"
+
+
+def is_weekly(period_str):
+    """Check if a period string represents weekly granularity."""
+    return "W" in str(period_str)
 
 
 # =====================================================================
@@ -271,25 +378,29 @@ def get_connection():
 # MEASURES
 # =====================================================================
 
-def fetch_measures(con, month):
-    """Return all snapshot measures for a given YearMonth string."""
-    cust_row = con.execute("""
+def fetch_measures(con, period):
+    """Return all snapshot measures for a given period string (monthly or weekly)."""
+    weekly = is_weekly(period)
+    period_col = "p.ISOWeekLabel" if weekly else "p.YearMonth"
+    sales_join = "s.Earned_Date = p.Date" if weekly else "s.OrderCohortMonth = p.Date"
+
+    cust_row = con.execute(f"""
         SELECT
             COUNT(DISTINCT s.CustomerID_Std),
             COUNT(DISTINCT CASE
                 WHEN s.Transaction_Type = 'Subscription' THEN s.CustomerID_Std
             END)
         FROM sales s
-        JOIN dim_period p ON s.OrderCohortMonth = p.Date
+        JOIN dim_period p ON {sales_join}
         WHERE s.Transaction_Type <> 'Invoice Payment'
           AND s.Earned_Date IS NOT NULL
-          AND p.YearMonth = $1
-    """, [month]).fetchone()
+          AND {period_col} = $1
+    """, [period]).fetchone()
     customers = int(cust_row[0])
     subscribers = int(cust_row[1])
     clients = customers - subscribers
 
-    items_row = con.execute("""
+    items_row = con.execute(f"""
         SELECT
             COALESCE(SUM(sub.qty), 0),
             COALESCE(SUM(CASE WHEN sub.iss = 0 THEN sub.qty END), 0),
@@ -302,14 +413,14 @@ def fetch_measures(con, month):
             LEFT JOIN (
                 SELECT DISTINCT OrderID_Std, IsSubscriptionService FROM sales
             ) sd ON i.OrderID_Std = sd.OrderID_Std
-            WHERE p.YearMonth = $1
+            WHERE {period_col} = $1
         ) sub
-    """, [month]).fetchone()
+    """, [period]).fetchone()
     items_total = int(items_row[0])
     items_client = int(items_row[1])
     items_sub = int(items_row[2])
 
-    rev_row = con.execute("""
+    rev_row = con.execute(f"""
         SELECT
             COALESCE(SUM(s.Total_Num), 0),
             COALESCE(SUM(CASE
@@ -320,23 +431,23 @@ def fetch_measures(con, month):
                 WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = 1
                 THEN s.Total_Num END), 0)
         FROM sales s
-        JOIN dim_period p ON s.OrderCohortMonth = p.Date
+        JOIN dim_period p ON {sales_join}
         WHERE s.Earned_Date IS NOT NULL
-          AND p.YearMonth = $1
-    """, [month]).fetchone()
+          AND {period_col} = $1
+    """, [period]).fetchone()
     rev_total = float(rev_row[0])
     rev_client = float(rev_row[1])
     rev_sub = float(rev_row[2])
 
-    stops_row = con.execute("""
+    stops_row = con.execute(f"""
         SELECT
             COALESCE(SUM(s.HasDelivery), 0),
             COALESCE(SUM(s.HasPickup), 0)
         FROM sales s
-        JOIN dim_period p ON s.OrderCohortMonth = p.Date
+        JOIN dim_period p ON {sales_join}
         WHERE s.Earned_Date IS NOT NULL
-          AND p.YearMonth = $1
-    """, [month]).fetchone()
+          AND {period_col} = $1
+    """, [period]).fetchone()
     deliveries = int(stops_row[0])
     pickups = int(stops_row[1])
 
@@ -349,45 +460,48 @@ def fetch_measures(con, month):
 
 
 @st.cache_data(ttl=300)
-def fetch_measures_batch(_con, months_tuple):
-    """Fetch all measures for multiple months in 4 batched SQL queries."""
-    months = list(months_tuple)
-    placeholders = ", ".join(f"'{m}'" for m in months)
+def fetch_measures_batch(_con, periods_tuple):
+    """Fetch all measures for multiple periods in 4 batched SQL queries."""
+    periods = list(periods_tuple)
+    weekly = is_weekly(periods[0])
+    period_col = "p.ISOWeekLabel" if weekly else "p.YearMonth"
+    sales_join = "s.Earned_Date = p.Date" if weekly else "s.OrderCohortMonth = p.Date"
+    placeholders = ", ".join(f"'{p}'" for p in periods)
 
     cust_df = _con.execute(f"""
-        SELECT p.YearMonth,
+        SELECT {period_col} AS period,
                COUNT(DISTINCT s.CustomerID_Std) AS customers,
                COUNT(DISTINCT CASE
                    WHEN s.Transaction_Type = 'Subscription' THEN s.CustomerID_Std
                END) AS subscribers
         FROM sales s
-        JOIN dim_period p ON s.OrderCohortMonth = p.Date
+        JOIN dim_period p ON {sales_join}
         WHERE s.Transaction_Type <> 'Invoice Payment'
           AND s.Earned_Date IS NOT NULL
-          AND p.YearMonth IN ({placeholders})
-        GROUP BY p.YearMonth
+          AND {period_col} IN ({placeholders})
+        GROUP BY {period_col}
     """).df()
 
     items_df = _con.execute(f"""
-        SELECT sub.ym,
+        SELECT sub.period,
                COALESCE(SUM(sub.qty), 0) AS items_total,
                COALESCE(SUM(CASE WHEN sub.iss = 0 THEN sub.qty END), 0) AS items_client,
                COALESCE(SUM(CASE WHEN sub.iss = 1 THEN sub.qty END), 0) AS items_sub
         FROM (
-            SELECT p.YearMonth AS ym, i.Quantity AS qty,
+            SELECT {period_col} AS period, i.Quantity AS qty,
                    COALESCE(sd.IsSubscriptionService, 0) AS iss
             FROM items i
             JOIN dim_period p ON i.ItemDate = p.Date
             LEFT JOIN (
                 SELECT DISTINCT OrderID_Std, IsSubscriptionService FROM sales
             ) sd ON i.OrderID_Std = sd.OrderID_Std
-            WHERE p.YearMonth IN ({placeholders})
+            WHERE {period_col} IN ({placeholders})
         ) sub
-        GROUP BY sub.ym
+        GROUP BY sub.period
     """).df()
 
     rev_df = _con.execute(f"""
-        SELECT p.YearMonth,
+        SELECT {period_col} AS period,
                COALESCE(SUM(s.Total_Num), 0) AS rev_total,
                COALESCE(SUM(CASE
                    WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = 0
@@ -397,44 +511,44 @@ def fetch_measures_batch(_con, months_tuple):
                    WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = 1
                    THEN s.Total_Num END), 0) AS rev_sub
         FROM sales s
-        JOIN dim_period p ON s.OrderCohortMonth = p.Date
+        JOIN dim_period p ON {sales_join}
         WHERE s.Earned_Date IS NOT NULL
-          AND p.YearMonth IN ({placeholders})
-        GROUP BY p.YearMonth
+          AND {period_col} IN ({placeholders})
+        GROUP BY {period_col}
     """).df()
 
     stops_df = _con.execute(f"""
-        SELECT p.YearMonth,
+        SELECT {period_col} AS period,
                COALESCE(SUM(s.HasDelivery), 0) AS deliveries,
                COALESCE(SUM(s.HasPickup), 0) AS pickups
         FROM sales s
-        JOIN dim_period p ON s.OrderCohortMonth = p.Date
+        JOIN dim_period p ON {sales_join}
         WHERE s.Earned_Date IS NOT NULL
-          AND p.YearMonth IN ({placeholders})
-        GROUP BY p.YearMonth
+          AND {period_col} IN ({placeholders})
+        GROUP BY {period_col}
     """).df()
 
     result = {}
-    for m in months:
-        c_row = cust_df[cust_df["YearMonth"] == m]
+    for p in periods:
+        c_row = cust_df[cust_df["period"] == p]
         customers = int(c_row["customers"].iloc[0]) if len(c_row) else 0
         subscribers = int(c_row["subscribers"].iloc[0]) if len(c_row) else 0
 
-        i_row = items_df[items_df["ym"] == m]
+        i_row = items_df[items_df["period"] == p]
         items_total = int(i_row["items_total"].iloc[0]) if len(i_row) else 0
         items_client = int(i_row["items_client"].iloc[0]) if len(i_row) else 0
         items_sub = int(i_row["items_sub"].iloc[0]) if len(i_row) else 0
 
-        r_row = rev_df[rev_df["YearMonth"] == m]
+        r_row = rev_df[rev_df["period"] == p]
         rev_total = float(r_row["rev_total"].iloc[0]) if len(r_row) else 0.0
         rev_client = float(r_row["rev_client"].iloc[0]) if len(r_row) else 0.0
         rev_sub = float(r_row["rev_sub"].iloc[0]) if len(r_row) else 0.0
 
-        s_row = stops_df[stops_df["YearMonth"] == m]
+        s_row = stops_df[stops_df["period"] == p]
         deliveries = int(s_row["deliveries"].iloc[0]) if len(s_row) else 0
         pickups = int(s_row["pickups"].iloc[0]) if len(s_row) else 0
 
-        result[m] = {
+        result[p] = {
             "customers": customers, "clients": customers - subscribers,
             "subscribers": subscribers,
             "items": items_total, "items_client": items_client,
@@ -450,30 +564,45 @@ def fetch_measures_batch(_con, months_tuple):
 # TREND CHART
 # =====================================================================
 
-def format_month_label(ym):
-    y, m = ym.split("-")
+def format_period_label(period):
+    """Format a period string for display. Monthly: 'Feb 2025', Weekly: '3 Feb '26'."""
+    if is_weekly(period):
+        parts = period.split("-W")
+        year, week = int(parts[0]), int(parts[1])
+        monday = date.fromisocalendar(year, week, 1)
+        return f"{monday.day} {monday.strftime('%b %y')}"
+    y, m = period.split("-")
     return datetime(int(y), int(m), 1).strftime("%b %Y")
 
 
-def get_6_month_window(selected_month, available_months):
-    """Return up to 6 months ending at selected_month."""
-    idx = available_months.index(selected_month)
-    start = max(0, idx - 5)
-    return available_months[start:idx + 1]
+# Backward compatibility
+format_month_label = format_period_label
+
+
+def get_display_window(selected_period, available_periods):
+    """Return display window: 6 periods (monthly) or 13 periods (weekly)."""
+    count = 13 if is_weekly(selected_period) else 6
+    idx = available_periods.index(selected_period)
+    start = max(0, idx - (count - 1))
+    return available_periods[start:idx + 1]
+
+
+# Backward compatibility
+get_6_month_window = get_display_window
 
 
 
-def render_trend_chart_v2(active_key, trend_data, display_months,
-                          available_months, config, bar_color,
+def render_trend_chart_v2(active_key, trend_data, display_periods,
+                          available_periods, config, bar_color,
                           show_title=True, height=400):
-    """V2 chart: MoM annotations below date labels, taller, more bottom margin."""
+    """V2 chart: period-over-period annotations below date labels."""
     metric_key = config["key"]
     is_currency = config["is_currency"]
     is_percentage = config.get("is_percentage", False)
     is_ratio = config.get("is_ratio", False)
 
-    labels = [format_month_label(m) for m in display_months]
-    values = [trend_data.get(m, {}).get(metric_key, 0) for m in display_months]
+    labels = [format_period_label(m) for m in display_periods]
+    values = [trend_data.get(m, {}).get(metric_key, 0) for m in display_periods]
 
     if is_percentage:
         text_labels = [fmt_pct(v) for v in values]
@@ -484,18 +613,23 @@ def render_trend_chart_v2(active_key, trend_data, display_months,
     else:
         text_labels = [f"{v:,}" for v in values]
 
+    # Reduce text size for weekly charts (13 bars)
+    weekly = len(display_periods) > 6
+    bar_text_size = 10 if weekly else 13
+    ann_text_size = 10 if weekly else 13
+
     fig = go.Figure(go.Bar(
         x=labels, y=values,
         text=text_labels, textposition="outside",
-        textfont=dict(size=13, weight=700),
+        textfont=dict(size=bar_text_size, weight=700),
         marker_color=bar_color, marker_line=dict(width=0),
         cliponaxis=False,
     ))
 
-    for i, m in enumerate(display_months):
+    for i, m in enumerate(display_periods):
         val = values[i]
-        m_idx = available_months.index(m) if m in available_months else -1
-        prev_m = available_months[m_idx - 1] if m_idx > 0 else None
+        m_idx = available_periods.index(m) if m in available_periods else -1
+        prev_m = available_periods[m_idx - 1] if m_idx > 0 else None
         prev_val = trend_data.get(prev_m, {}).get(metric_key) if prev_m else None
 
         if prev_val is not None and prev_val != 0:
@@ -511,22 +645,26 @@ def render_trend_chart_v2(active_key, trend_data, display_months,
             ann_text = "\u2014"
             fg = "#999"
 
+        # Push annotations lower on shorter charts to avoid clipping dates
+        ann_y = -0.32 if height < 400 else -0.22
         fig.add_annotation(
-            x=labels[i], y=-0.22, text=ann_text, showarrow=False,
-            font=dict(size=13, color=fg),
+            x=labels[i], y=ann_y, text=ann_text, showarrow=False,
+            font=dict(size=ann_text_size, color=fg),
             xref="x", yref="paper",
         )
 
     top_margin = 70 if show_title else 45
+    bot_margin = 130 if height < 400 else 110
 
     fig.update_layout(
         title=dict(text=config["label"], font=dict(size=16, weight=700)) if show_title else dict(text=""),
         height=height,
-        margin=dict(t=top_margin, b=110, l=50, r=30),
+        margin=dict(t=top_margin, b=bot_margin, l=50, r=30),
         paper_bgcolor="#ffffff",
         plot_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(tickfont=dict(size=12), tickmode="array",
+        xaxis=dict(tickfont=dict(size=10 if weekly else 12), tickmode="array",
                    tickvals=labels, ticktext=labels,
+                   tickangle=-45 if weekly else 0,
                    fixedrange=True),
         yaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.06)",
                    tickfont=dict(size=11),
@@ -534,7 +672,7 @@ def render_trend_chart_v2(active_key, trend_data, display_months,
                    tickprefix="" if (is_percentage or is_ratio) else ("Dhs " if is_currency else ""),
                    rangemode="tozero",
                    fixedrange=True),
-        bargap=0.35,
+        bargap=0.25 if weekly else 0.35,
         dragmode=False,
     )
 
@@ -556,25 +694,21 @@ def inject_global_styles():
         @import url('https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700&display=swap');
 
         html, body, [class*="st-"], .stMarkdown, .stSelectbox,
-        h1, h2, h3, h4, h5, h6, p, div, label {
-            font-family: 'Futura', 'Jost', 'Trebuchet MS', sans-serif !important;
+        h1, h2, h3, h4, h5, h6, p, label {
+            font-family: 'Jost', 'Futura', 'Trebuchet MS', sans-serif !important;
         }
-        /* Preserve Material Symbols on icon spans used by Streamlit nav */
-        span[class*="material-symbols"] {
+        /* Preserve Material Symbols ligature rendering */
+        [data-testid="stIconMaterial"],
+        [class*="material-symbols"] {
             font-family: 'Material Symbols Rounded' !important;
         }
 
         .stApp {
             background-color: #F7F5F0;
-            background-image:
-                radial-gradient(circle, #ffffff 4.8px, transparent 4.8px),
-                radial-gradient(circle, #ffffff 4.8px, transparent 4.8px);
-            background-size: 48px 48px;
-            background-position: 0 0, 24px 24px;
         }
 
         .stMarkdown { margin-bottom: 0 !important; }
-        div[data-testid="stVerticalBlock"] > div { gap: 0.3rem !important; }
+        div[data-testid="stVerticalBlock"] > div { gap: 0.6rem !important; }
         div[data-testid="stSelectbox"] { max-width: 200px; }
 
         div[data-testid="stPlotlyChart"] {
@@ -623,55 +757,136 @@ def inject_global_styles():
 
 
 # =====================================================================
-# MONTH SELECTOR (shared between all pages)
+# PERIOD SELECTOR (shared between all pages)
 # =====================================================================
 
-def month_selector(con, show_title=True):
-    """Render title + month dropdown.  Returns (selected_month, available_months).
+def period_selector(con, show_title=True):
+    """Render title + period dropdown with weekly/monthly toggle.
 
-    Persists the selected month in st.session_state so navigating
-    between pages keeps the same month selected.
+    Returns (selected_period, available_periods).
+    Persists selection in st.session_state for cross-page navigation.
     """
-    months_df = con.execute("""
-        SELECT DISTINCT p.YearMonth
-        FROM sales s
-        JOIN dim_period p ON s.OrderCohortMonth = p.Date
-        WHERE s.Earned_Date IS NOT NULL
-        ORDER BY p.YearMonth
-    """).df()
-
-    if len(months_df) == 0:
-        st.error("No data found.")
-        st.stop()
-
-    available_months = months_df["YearMonth"].tolist()
-    month_labels = [format_month_label(m) for m in available_months]
-    label_to_ym = dict(zip(month_labels, available_months))
-    ym_to_label = dict(zip(available_months, month_labels))
-
-    reversed_labels = list(reversed(month_labels))
-
-    # Determine default index from persisted session state
-    default_idx = 0  # most recent month
-    stored = st.session_state.get("selected_month")
-    if stored and stored in ym_to_label:
-        stored_label = ym_to_label[stored]
-        if stored_label in reversed_labels:
-            default_idx = reversed_labels.index(stored_label)
-
     if show_title:
         st.title("LOOMI Monthly Report")
 
+    # Persist toggle across page navigation (widget keys get cleaned up)
+    if "_weekly_persist" not in st.session_state:
+        st.session_state["_weekly_persist"] = False
+
+    def _on_weekly_change():
+        st.session_state["_weekly_persist"] = st.session_state["_weekly_toggle"]
+
+    weekly_mode = st.toggle(
+        "Weekly", value=st.session_state["_weekly_persist"],
+        key="_weekly_toggle", on_change=_on_weekly_change,
+    )
+
+    if weekly_mode:
+        periods_df = con.execute("""
+            SELECT DISTINCT p.ISOWeekLabel
+            FROM sales s
+            JOIN dim_period p ON s.Earned_Date = p.Date
+            WHERE s.Earned_Date IS NOT NULL
+            ORDER BY p.ISOWeekLabel
+        """).df()
+        if len(periods_df) == 0:
+            st.error("No data found.")
+            st.stop()
+        available_periods = periods_df["ISOWeekLabel"].tolist()
+    else:
+        periods_df = con.execute("""
+            SELECT DISTINCT p.YearMonth
+            FROM sales s
+            JOIN dim_period p ON s.OrderCohortMonth = p.Date
+            WHERE s.Earned_Date IS NOT NULL
+            ORDER BY p.YearMonth
+        """).df()
+        if len(periods_df) == 0:
+            st.error("No data found.")
+            st.stop()
+        available_periods = periods_df["YearMonth"].tolist()
+
+    period_labels = [format_period_label(p) for p in available_periods]
+    label_to_period = dict(zip(period_labels, available_periods))
+    period_to_label = dict(zip(available_periods, period_labels))
+
+    reversed_labels = list(reversed(period_labels))
+
+    # Determine default index from persisted session state
+    default_idx = 0  # most recent period
+    stored = st.session_state.get("selected_period")
+    if stored and stored in period_to_label:
+        stored_label = period_to_label[stored]
+        if stored_label in reversed_labels:
+            default_idx = reversed_labels.index(stored_label)
+
     selected_label = st.selectbox(
-        "Month", options=reversed_labels,
+        "Period", options=reversed_labels,
         index=default_idx, label_visibility="collapsed",
     )
-    selected_month = label_to_ym[selected_label]
+    selected_period = label_to_period[selected_label]
 
     # Persist selection for cross-page navigation
-    st.session_state["selected_month"] = selected_month
+    st.session_state["selected_period"] = selected_period
+    st.session_state["selected_month"] = selected_period  # backward compat
 
-    return selected_month, available_months
+    return selected_period, available_periods
+
+
+# Backward compatibility
+month_selector = period_selector
+
+
+# =====================================================================
+# SHARED PAGE HELPERS
+# =====================================================================
+
+def render_page_header(con):
+    """Render the standard detail-page header: back link (left) + period selector (right).
+
+    Returns (selected_period, available_periods).
+    """
+    left, right = st.columns([3, 1])
+    with left:
+        st.markdown('<div class="detail-back">', unsafe_allow_html=True)
+        st.page_link("pages/overview.py", label="\u2190 Back to Overview", icon="\U0001f3e0")
+        st.markdown('</div>', unsafe_allow_html=True)
+    with right:
+        selected_period, available_periods = period_selector(con, show_title=False)
+    st.markdown("---")
+    return selected_period, available_periods
+
+
+def render_section_heading(text, color):
+    """Render a centered section sub-heading with consistent styling."""
+    st.markdown(
+        f'<h3 style="text-align:center; color:{color}; font-weight:600; '
+        f'font-size:1.1rem; margin:1.2rem 0 0.5rem 0;">{text}</h3>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_page_title(text, color):
+    """Render a centered page title with consistent styling."""
+    st.markdown(
+        f'<h2 style="text-align:center; color:{color}; font-weight:700; '
+        f'font-size:1.5rem; margin:0.8rem 0 0.6rem 0; letter-spacing:0.02em;">'
+        f'{text}</h2>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_footer():
+    """Render the standard page footer with data source and freshness timestamp."""
+    st.markdown("---")
+    st.caption(f"Data: {SALES_CSV}")
+    # Show actual data freshness (DB file modification time), not page render time
+    db_path = Path(DB_PATH)
+    if db_path.exists():
+        mtime = datetime.fromtimestamp(db_path.stat().st_mtime)
+        st.caption(f"Data as of: {mtime.strftime('%Y-%m-%d %H:%M:%S')}")
+    else:
+        st.caption(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 
 # =====================================================================
@@ -681,134 +896,254 @@ def month_selector(con, show_title=True):
 PAGE_CONFIG = {
     "customers": {
         "title": "Active Customers (Monthly Look-back)",
-        "color": "#004D40",
-        "headline_metric": "customers",
-        "headline_format": fmt_count,
-        "sub_metrics": [
-            {"label": "Clients",     "key": "clients",     "format": fmt_count},
-            {"label": "Subscribers", "key": "subscribers",  "format": fmt_count},
+        "color_key": "customers",
+        "fetch": "monthly",
+        "state_key": "detail_customers",
+        "metrics": [
+            ("Total Customers", "customers"),
+            ("Clients", "clients"),
+            ("Subscribers", "subscribers"),
         ],
     },
     "items": {
         "title": "Items Processed (Monthly Look-back)",
-        "color": "#4E342E",
-        "headline_metric": "items",
-        "headline_format": fmt_count,
-        "sub_metrics": [
-            {"label": "Client Items",     "key": "items_client", "format": fmt_count},
-            {"label": "Subscriber Items", "key": "items_sub",    "format": fmt_count},
+        "color_key": "items",
+        "fetch": "monthly",
+        "state_key": "detail_items",
+        "metrics": [
+            ("Total Items", "items"),
+            ("Client Items", "items_client"),
+            ("Subscriber Items", "items_sub"),
         ],
     },
     "revenues": {
         "title": "Revenue Performance (Monthly Look-back)",
-        "color": "#4A148C",
-        "headline_metric": "revenues",
-        "headline_format": fmt_dhs,
-        "sub_metrics": [
-            {"label": "Client Revenue",     "key": "rev_client", "format": fmt_dhs_sub},
-            {"label": "Subscriber Revenue", "key": "rev_sub",    "format": fmt_dhs_sub},
+        "color_key": "revenues",
+        "fetch": "monthly",
+        "state_key": "detail_revenues",
+        "metrics": [
+            ("Total Revenue", "revenues"),
+            ("Client Revenue", "rev_client"),
+            ("Subscriber Revenue", "rev_sub"),
         ],
     },
-    "stops": {
-        "title": "Delivery &amp; Pickup Activity (Monthly Look-back)",
-        "color": "#1A5276",
-        "headline_metric": "stops",
-        "headline_format": fmt_count,
-        "sub_metrics": [
-            {"label": "Deliveries", "key": "deliveries", "format": fmt_count},
-            {"label": "Pickups",    "key": "pickups",    "format": fmt_count},
+    "customer_report": {
+        "title": "Items per Customer",
+        "color_key": "customer_report",
+        "fetch": "customer",
+        "state_key": "detail_cr_items",
+        "metrics": [
+            ("Items per Client", "client_items_per_customer"),
+            ("Items per Subscriber", "sub_items_per_customer"),
+        ],
+    },
+    "customer_report_revenue": {
+        "title": "Revenue per Customer",
+        "color_key": "customer_report",
+        "fetch": "customer",
+        "state_key": "detail_cr_revenue",
+        "metrics": [
+            ("Revenue per Client", "rev_per_client"),
+            ("Revenue per Subscriber", "rev_per_subscriber"),
+        ],
+    },
+    "new_customers": {
+        "title": "New Customer Analysis",
+        "color_key": "customer_report",
+        "fetch": "new_customer",
+        "state_key": "detail_new_customers",
+        "monthly_only": True,
+        "metrics": [
+            ("New Customer Items", "new_items"),
+            ("New Customer Revenue", "new_revenue"),
         ],
     },
 }
 
 
+def _set_metric(state_key, key):
+    """Callback for metric selector buttons."""
+    st.session_state[state_key] = key
+
+
+def _navigate_to(page):
+    """Callback for navigating to a detail page."""
+    st.switch_page(page)
+
+
+def _value_block(data_key, val, current, previous, height):
+    """Centered value + MoM delta as a fixed-height HTML block.
+
+    Auto-formats based on METRIC_CONFIG for the given data_key.
+    """
+    cfg = METRIC_CONFIG[data_key]
+    if cfg.get("is_currency"):
+        formatted = fmt_dirham(val, 0)
+    elif cfg.get("is_ratio"):
+        formatted = fmt_ratio(val)
+    elif cfg.get("is_percentage"):
+        formatted = fmt_pct(val)
+    else:
+        formatted = fmt_count(val)
+
+    if previous is None or previous == 0:
+        delta = '<span style="color:#999;font-size:0.9rem;">&mdash;</span>'
+    else:
+        pct = (current - previous) / abs(previous) * 100
+        if pct > 0.5:
+            arrow, color = "\u2191", "#09ab3b"
+        elif pct < -0.5:
+            arrow, color = "\u2193", "#ff2b2b"
+        else:
+            arrow, color = "\u2192", "#999"
+        delta = (
+            f'<span style="color:{color};font-size:0.9rem;font-weight:600;">'
+            f'{arrow} {pct:+.0f}%</span>'
+        )
+
+    return (
+        f'<div style="height:{height}px;display:flex;flex-direction:column;'
+        f'justify-content:center;align-items:center;">'
+        f'<div style="font-size:2.2rem;font-weight:700;color:#0e1117;'
+        f'line-height:1.2;">{formatted}</div>'
+        f'<div style="margin-top:0.25rem;">{delta}</div>'
+        f'</div>'
+    )
+
+
+def render_metric_selector(metrics, trend_data, window, available_periods,
+                           selected_period, state_key, header_color,
+                           chart_height=None, detail_link=None):
+    """Render interactive button-selector layout: buttons+values (left), chart (right).
+
+    Parameters:
+        metrics      -- list of (label, data_key) tuples (1-3 items)
+        trend_data   -- dict {period_str: {key: value, ...}}
+        window       -- list of display periods
+        available_periods -- full list of available periods
+        selected_period   -- currently selected period
+        state_key    -- session state key for tracking active metric
+        header_color -- bar color for the chart
+        chart_height -- optional override; defaults based on metric count
+        detail_link  -- optional {"page": "...", "label": "..."} for overview use
+    """
+    n = len(metrics)
+    if n >= 3:
+        card_h, gap, default_chart_h = 150, 5, 500
+    elif n == 2:
+        card_h, gap, default_chart_h = 200, 5, 420
+    else:
+        card_h, gap, default_chart_h = 200, 0, 300
+
+    chart_h = chart_height or default_chart_h
+
+    first_key = metrics[0][1]
+    if state_key not in st.session_state:
+        st.session_state[state_key] = first_key
+
+    # Zero-gap CSS for card column
+    st.markdown("""
+    <style>
+        [data-testid="stHorizontalBlock"] > div:first-child
+            [data-testid="stVerticalBlock"] > div {
+            gap: 0 !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    cur = trend_data.get(selected_period, {})
+    p_idx = available_periods.index(selected_period)
+    prev = trend_data.get(available_periods[p_idx - 1], {}) if p_idx > 0 else {}
+
+    card_col, chart_col = st.columns([1, 2])
+
+    with card_col:
+        for i, (label, key) in enumerate(metrics):
+            is_active = st.session_state[state_key] == key
+            val = cur.get(key, 0)
+
+            if i > 0:
+                st.markdown(
+                    f'<div style="height:{gap}px;"></div>',
+                    unsafe_allow_html=True,
+                )
+
+            if detail_link and n == 1:
+                st.button(
+                    label,
+                    key=f"btn_{state_key}_{key}",
+                    on_click=_navigate_to,
+                    args=(detail_link["page"],),
+                    use_container_width=True,
+                    type="primary",
+                )
+            else:
+                st.button(
+                    label,
+                    key=f"btn_{state_key}_{key}",
+                    on_click=_set_metric,
+                    args=(state_key, key),
+                    use_container_width=True,
+                    type="primary" if is_active else "secondary",
+                )
+            st.markdown(
+                _value_block(key, val, val, prev.get(key), card_h - 42),
+                unsafe_allow_html=True,
+            )
+
+    with chart_col:
+        active_key = st.session_state[state_key]
+        render_trend_chart_v2(
+            f"{state_key}_{active_key}", trend_data, window, available_periods,
+            METRIC_CONFIG[active_key], header_color,
+            show_title=False, height=chart_h,
+        )
+
+
 def render_detail_page(page_key):
     """Render a complete detail page for the given metric category."""
     cfg = PAGE_CONFIG[page_key]
-    category = page_key
+    color_key = cfg["color_key"]
 
     inject_global_styles()
     con = get_connection()
 
-    # Header row: back link (left) + month selector (right)
-    left, right = st.columns([3, 1])
-    with left:
-        st.markdown('<div class="detail-back">', unsafe_allow_html=True)
-        st.page_link("pages/overview.py", label="\u2190 Back to Overview", icon="\U0001f3e0")
-        st.markdown('</div>', unsafe_allow_html=True)
-    with right:
-        selected_month, available_months = month_selector(con, show_title=False)
+    selected_period, available_periods = render_page_header(con)
 
-    st.markdown("---")
+    hdr = COLORS[color_key]["header"]
+    render_page_title(cfg["title"], hdr)
 
-    # Page title
-    st.markdown(
-        f'<h2 style="text-align:center; color:{cfg["color"]}; font-weight:700; '
-        f'font-size:1.5rem; margin:0.8rem 0 0.6rem 0; letter-spacing:0.02em;">'
-        f'{cfg["title"]}</h2>',
-        unsafe_allow_html=True,
-    )
+    # Monthly-only pages: show notice in weekly mode
+    if cfg.get("monthly_only") and is_weekly(selected_period):
+        st.info("This page is available in monthly view only. Toggle back to monthly to view data.")
+        render_footer()
+        return
 
-    # Fetch data (6-month window + one extra for MoM)
-    window = get_6_month_window(selected_month, available_months)
-    first_idx = available_months.index(window[0])
-    fetch_months = (
-        [available_months[first_idx - 1]] if first_idx > 0 else []
+    # Fetch data (display window + one extra for period-over-period)
+    window = get_display_window(selected_period, available_periods)
+    first_idx = available_periods.index(window[0])
+    fetch_periods = (
+        [available_periods[first_idx - 1]] if first_idx > 0 else []
     ) + window
-    trend_data = fetch_measures_batch(con, tuple(fetch_months))
 
-    cur = trend_data.get(selected_month, {})
-    idx = available_months.index(selected_month)
-    prev = trend_data.get(available_months[idx - 1], {}) if idx > 0 else {}
+    fetch_type = cfg["fetch"]
+    if fetch_type == "monthly":
+        trend_data = fetch_measures_batch(con, tuple(fetch_periods))
+    elif fetch_type == "customer":
+        from customer_report_shared import fetch_customer_measures_batch
+        trend_data = fetch_customer_measures_batch(con, tuple(fetch_periods))
+    elif fetch_type == "new_customer":
+        from customer_report_shared import fetch_new_customer_detail_batch
+        trend_data = fetch_new_customer_detail_batch(con, tuple(fetch_periods))
 
-    hdr = COLORS[category]["header"]
-    sub_bg = COLORS[category]["sub"]
-    headline_key = cfg["headline_metric"]
-
-    # Headline card
-    st.markdown(
-        headline_card(
-            METRIC_CONFIG[headline_key]["label"],
-            cfg["headline_format"](cur.get(headline_key, 0)),
-            change_html(cur.get(headline_key, 0), prev.get(headline_key)),
-            hdr,
-        ),
-        unsafe_allow_html=True,
+    render_metric_selector(
+        metrics=cfg["metrics"],
+        trend_data=trend_data,
+        window=window,
+        available_periods=available_periods,
+        selected_period=selected_period,
+        state_key=cfg["state_key"],
+        header_color=hdr,
     )
 
-    st.markdown('<div style="height:1.2rem;"></div>', unsafe_allow_html=True)
-
-    # Headline chart (centered 90% width)
-    spacer_l, chart_col, spacer_r = st.columns([1, 18, 1])
-    with chart_col:
-        render_trend_chart_v2(
-            headline_key, trend_data, window, available_months,
-            METRIC_CONFIG[headline_key], hdr, show_title=False,
-        )
-
-    st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
-
-    # Sub-metrics side by side
-    sub1, sub2 = cfg["sub_metrics"]
-    c1, c2 = st.columns(2)
-
-    for col, sub in [(c1, sub1), (c2, sub2)]:
-        with col:
-            st.markdown(
-                sub_card(
-                    sub["label"], sub["format"](cur.get(sub["key"], 0)),
-                    change_html(cur.get(sub["key"], 0), prev.get(sub["key"])),
-                    sub_bg,
-                ),
-                unsafe_allow_html=True,
-            )
-            st.markdown('<div style="height:0.8rem;"></div>', unsafe_allow_html=True)
-            render_trend_chart_v2(
-                sub["key"], trend_data, window, available_months,
-                METRIC_CONFIG[sub["key"]], hdr, show_title=False,
-            )
-
-    # Footer
-    st.markdown("---")
-    st.caption(f"Data: {SALES_CSV}")
-    st.caption(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    render_footer()

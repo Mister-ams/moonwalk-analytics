@@ -13,18 +13,33 @@ st.set_page_config(
     layout="wide",
 )
 
+# Business Performance
 overview = st.Page("pages/overview.py", title="Overview", default=True)
 customers = st.Page("pages/customers.py", title="Customers")
 items_page = st.Page("pages/items.py", title="Items")
 revenues = st.Page("pages/revenues.py", title="Revenues")
-stops = st.Page("pages/stops.py", title="Stops")
+ci_overview = st.Page("pages/customer_insights.py", title="Customer Insights")
+customer_report = st.Page("pages/customer_report.py", title="Items per Customer")
+customer_report_revenue = st.Page("pages/customer_report_revenue.py", title="Revenue per Customer")
+new_customers_page = st.Page("pages/new_customers.py", title="New Customers")
+cohort_page = st.Page("pages/cohort.py", title="Cohort Analysis")
 
-customer_report = st.Page("pages/customer_report.py", title="Customer Report")
+# Operations
+operations_page = st.Page("pages/operations.py", title="Operations")
+logistics_page = st.Page("pages/logistics.py", title="Logistics")
+
+# Financials
+payments_page = st.Page("pages/payments.py", title="Payments")
 
 page = st.navigation(
     {
-        "01 Monthly Report": [overview, customers, items_page, revenues, stops],
-        "02 Customer Report": [customer_report],
+        "Business Performance": [
+            overview, customers, items_page, revenues,
+            ci_overview, customer_report, customer_report_revenue,
+            new_customers_page, cohort_page,
+        ],
+        "Operations": [operations_page, logistics_page],
+        "Financials": [payments_page],
     },
     position="sidebar",
 )

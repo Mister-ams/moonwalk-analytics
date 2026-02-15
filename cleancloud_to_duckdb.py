@@ -40,6 +40,22 @@ CSV_FILES = {
     'dim_period': 'DimPeriod_Python.csv'
 }
 
+# Columns to cast from VARCHAR to DATE after table creation
+DATE_COLUMNS = {
+    'sales': ['Placed_Date', 'Earned_Date', 'OrderCohortMonth', 'CohortMonth',
+              'Ready By', 'Cleaned', 'Collected', 'Pickup Date', 'Payment Date',
+              'Delivery_Date'],
+    'items': ['ItemDate', 'ItemCohortMonth'],
+    'customers': ['SignedUp_Date', 'CohortMonth'],
+    'customer_quality': ['OrderCohortMonth'],
+    'dim_period': ['Date', 'MonthStart', 'QuarterStart'],
+}
+
+# Redundant columns to drop (source columns superseded by derived columns)
+DROP_COLUMNS = {
+    'sales': ['Delivery'],  # Identical to HasDelivery
+}
+
 
 # =====================================================================
 # VALIDATION
@@ -118,7 +134,30 @@ def create_database():
     
     logger.info("")
     logger.info(f"  TOTAL: {total_rows:,} rows across {len(CSV_FILES)} tables")
-    
+
+    # Cast VARCHAR date columns to proper DATE type
+    logger.info("")
+    logger.info("  Casting date columns to DATE type...")
+    for table_name, columns in DATE_COLUMNS.items():
+        for col in columns:
+            try:
+                conn.execute(
+                    f'ALTER TABLE {table_name} ALTER COLUMN "{col}" '
+                    f'SET DATA TYPE DATE USING TRY_CAST("{col}" AS DATE)'
+                )
+            except Exception as e:
+                logger.info(f"    [WARN] Could not cast {table_name}.{col}: {str(e)[:60]}")
+    logger.info("    [OK] Date columns cast")
+
+    # Drop redundant columns
+    for table_name, columns in DROP_COLUMNS.items():
+        for col in columns:
+            try:
+                conn.execute(f'ALTER TABLE {table_name} DROP COLUMN "{col}"')
+                logger.info(f"    [OK] Dropped {table_name}.{col}")
+            except Exception as e:
+                logger.info(f"    [WARN] Could not drop {table_name}.{col}: {str(e)[:60]}")
+
     return conn
 
 
