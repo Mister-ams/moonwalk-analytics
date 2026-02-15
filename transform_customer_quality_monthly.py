@@ -16,7 +16,8 @@ import os
 from typing import Optional, Dict, Tuple
 warnings.filterwarnings('ignore')
 
-from helpers import SALES_DATA_PATH, vectorized_to_date, format_dates_for_csv
+from helpers import vectorized_to_date, format_dates_for_csv
+from config import LOCAL_STAGING_PATH
 
 from logger_config import setup_logger
 logger = setup_logger(__name__)
@@ -43,7 +44,7 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     logger.info("CUSTOMER_QUALITY_MONTHLY TRANSFORMATION - OPTIMIZED")
     logger.info("=" * 70)
     logger.info("")
-    output_path = os.path.join(SALES_DATA_PATH, "Customer_Quality_Monthly_Python.csv")
+    output_path = os.path.join(LOCAL_STAGING_PATH, "Customer_Quality_Monthly_Python.csv")
 
     # =====================================================================
     # PHASE 1: LOAD DATA
@@ -54,7 +55,7 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
         df_sales = shared_data['all_sales_df'].copy()
     else:
         df_sales = pd.read_csv(
-            os.path.join(SALES_DATA_PATH, "All_Sales_Python.csv"), encoding='utf-8'
+            os.path.join(LOCAL_STAGING_PATH, "All_Sales_Python.csv"), encoding='utf-8'
         )
 
     df_sales['OrderCohortMonth'] = vectorized_to_date(df_sales['OrderCohortMonth'])
@@ -72,7 +73,7 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
         df_items_all = shared_data['all_items_df'].copy()
     else:
         df_items_all = pd.read_csv(
-            os.path.join(SALES_DATA_PATH, "All_Items_Python.csv"), encoding='utf-8'
+            os.path.join(LOCAL_STAGING_PATH, "All_Items_Python.csv"), encoding='utf-8'
         )
 
     # Filter to B2C only
@@ -92,42 +93,29 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
 
     group_keys = ['CustomerID_Std', 'OrderCohortMonth']
 
-    # Total revenue per customer-month
-    monthly_rev = df_sales.groupby(group_keys)['Total_Num'].sum().reset_index(name='Monthly_Revenue')
+    # Single-pass aggregation: compute all revenue splits + subscriber flags at once
+    # (replaces 5 separate groupby + 4 merges)
+    is_order = df_sales['Transaction_Type'] == 'Order'
+    is_sub = df_sales['Transaction_Type'] == 'Subscription'
+    df_sales['_order_rev'] = df_sales['Total_Num'].where(is_order, 0)
+    df_sales['_sub_rev'] = df_sales['Total_Num'].where(is_sub, 0)
+    df_sales['_sub_pay'] = (is_sub & (df_sales['Total_Num'] > 0)).astype(int)
+    df_sales['_sub_svc'] = (
+        df_sales['IsSubscriptionService'].fillna(0) > 0
+    ).astype(int) if 'IsSubscriptionService' in df_sales.columns else 0
 
-    # Order revenue
-    order_mask = df_sales['Transaction_Type'] == 'Order'
-    order_rev = df_sales[order_mask].groupby(group_keys)['Total_Num'].sum().reset_index(name='Order_Revenue')
-
-    # Subscription revenue
-    sub_mask = df_sales['Transaction_Type'] == 'Subscription'
-    sub_rev = df_sales[sub_mask].groupby(group_keys)['Total_Num'].sum().reset_index(name='Subscription_Revenue')
-
-    # Subscriber flag: has subscription payment with amount > 0
-    has_sub_payment = df_sales[sub_mask & (df_sales['Total_Num'] > 0)].groupby(
-        group_keys
-    ).size().reset_index(name='_sub_pay')
-
-    # Or has orders during subscription coverage
-    if 'IsSubscriptionService' in df_sales.columns:
-        has_sub_svc = df_sales[df_sales['IsSubscriptionService'].fillna(0) > 0].groupby(
-            group_keys
-        ).size().reset_index(name='_sub_svc')
-    else:
-        has_sub_svc = pd.DataFrame(columns=group_keys + ['_sub_svc'])
-
-    # Merge all together
-    sales_grouped = monthly_rev.merge(order_rev, on=group_keys, how='left')
-    sales_grouped = sales_grouped.merge(sub_rev, on=group_keys, how='left')
-    sales_grouped = sales_grouped.merge(has_sub_payment[group_keys + ['_sub_pay']], on=group_keys, how='left')
-    sales_grouped = sales_grouped.merge(has_sub_svc[group_keys + ['_sub_svc']], on=group_keys, how='left')
-
-    sales_grouped['Order_Revenue'] = sales_grouped['Order_Revenue'].fillna(0)
-    sales_grouped['Subscription_Revenue'] = sales_grouped['Subscription_Revenue'].fillna(0)
+    sales_grouped = df_sales.groupby(group_keys, as_index=False).agg(
+        Monthly_Revenue=('Total_Num', 'sum'),
+        Order_Revenue=('_order_rev', 'sum'),
+        Subscription_Revenue=('_sub_rev', 'sum'),
+        _sub_pay=('_sub_pay', 'sum'),
+        _sub_svc=('_sub_svc', 'sum'),
+    )
     sales_grouped['Is_Subscriber'] = (
-        (sales_grouped['_sub_pay'].fillna(0) > 0) | (sales_grouped['_sub_svc'].fillna(0) > 0)
+        (sales_grouped['_sub_pay'] > 0) | (sales_grouped['_sub_svc'] > 0)
     ).astype(int)
     sales_grouped = sales_grouped.drop(columns=['_sub_pay', '_sub_svc'])
+    df_sales = df_sales.drop(columns=['_order_rev', '_sub_rev', '_sub_pay', '_sub_svc'])
 
     logger.info(f"  [OK] {len(sales_grouped):,} customer-month combinations")
     logger.info(f"  [OK] Subscribers: {sales_grouped['Is_Subscriber'].sum():,} customer-months")
@@ -172,43 +160,27 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     fallback_count = (~sales_with_item_month['OrderID_Std'].isin(df_items['OrderID_Std'])).sum()
     logger.info(f"  [OK] Using OrderCohortMonth fallback for {fallback_count:,} orders (Legacy)")
 
-    # Revenue by Customer + ItemCohortMonth (FAST version)
+    # Single-pass aggregation by item month (replaces 5 separate groupby + 4 merges)
     item_group_keys = ['CustomerID_Std', 'ItemCohortMonth']
 
-    rev_by_item_month = sales_with_item_month.groupby(item_group_keys)['Total_Num'].sum().reset_index(
-        name='Monthly_Revenue')
+    is_order_im = sales_with_item_month['Transaction_Type'] == 'Order'
+    is_sub_im = sales_with_item_month['Transaction_Type'] == 'Subscription'
+    sales_with_item_month['_order_rev'] = sales_with_item_month['Total_Num'].where(is_order_im, 0)
+    sales_with_item_month['_sub_rev'] = sales_with_item_month['Total_Num'].where(is_sub_im, 0)
+    sales_with_item_month['_sub_pay'] = (is_sub_im & (sales_with_item_month['Total_Num'] > 0)).astype(int)
+    sales_with_item_month['_sub_svc'] = (
+        sales_with_item_month['IsSubscriptionService'].fillna(0) > 0
+    ).astype(int) if 'IsSubscriptionService' in sales_with_item_month.columns else 0
 
-    order_rev_im = sales_with_item_month[
-        sales_with_item_month['Transaction_Type'] == 'Order'
-    ].groupby(item_group_keys)['Total_Num'].sum().reset_index(name='Order_Revenue')
-
-    sub_rev_im = sales_with_item_month[
-        sales_with_item_month['Transaction_Type'] == 'Subscription'
-    ].groupby(item_group_keys)['Total_Num'].sum().reset_index(name='Subscription_Revenue')
-
-    # Subscriber flag by item month
-    sub_pay_im = sales_with_item_month[
-        (sales_with_item_month['Transaction_Type'] == 'Subscription') &
-        (sales_with_item_month['Total_Num'] > 0)
-    ].groupby(item_group_keys).size().reset_index(name='_sub_pay')
-
-    if 'IsSubscriptionService' in sales_with_item_month.columns:
-        sub_svc_im = sales_with_item_month[
-            sales_with_item_month['IsSubscriptionService'].fillna(0) > 0
-        ].groupby(item_group_keys).size().reset_index(name='_sub_svc')
-    else:
-        sub_svc_im = pd.DataFrame(columns=item_group_keys + ['_sub_svc'])
-
-    sales_by_item_month = rev_by_item_month.merge(order_rev_im, on=item_group_keys, how='left')
-    sales_by_item_month = sales_by_item_month.merge(sub_rev_im, on=item_group_keys, how='left')
-    sales_by_item_month = sales_by_item_month.merge(sub_pay_im, on=item_group_keys, how='left')
-    sales_by_item_month = sales_by_item_month.merge(sub_svc_im, on=item_group_keys, how='left')
-
-    sales_by_item_month['Order_Revenue'] = sales_by_item_month['Order_Revenue'].fillna(0)
-    sales_by_item_month['Subscription_Revenue'] = sales_by_item_month['Subscription_Revenue'].fillna(0)
+    sales_by_item_month = sales_with_item_month.groupby(item_group_keys, as_index=False).agg(
+        Monthly_Revenue=('Total_Num', 'sum'),
+        Order_Revenue=('_order_rev', 'sum'),
+        Subscription_Revenue=('_sub_rev', 'sum'),
+        _sub_pay=('_sub_pay', 'sum'),
+        _sub_svc=('_sub_svc', 'sum'),
+    )
     sales_by_item_month['Is_Subscriber'] = (
-        (sales_by_item_month['_sub_pay'].fillna(0) > 0) |
-        (sales_by_item_month['_sub_svc'].fillna(0) > 0)
+        (sales_by_item_month['_sub_pay'] > 0) | (sales_by_item_month['_sub_svc'] > 0)
     ).astype(int)
     sales_by_item_month = sales_by_item_month.drop(columns=['_sub_pay', '_sub_svc'])
 

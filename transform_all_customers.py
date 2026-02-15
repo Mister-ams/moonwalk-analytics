@@ -18,8 +18,9 @@ warnings.filterwarnings('ignore')
 from helpers import (
     find_cleancloud_file, vectorized_to_date, vectorized_store_std,
     vectorized_customer_id_std, fx_pad_digits, format_dates_for_csv,
-    DOWNLOADS_PATH, SALES_DATA_PATH
+    DOWNLOADS_PATH,
 )
+from config import LOCAL_STAGING_PATH
 
 from logger_config import setup_logger
 logger = setup_logger(__name__)
@@ -45,8 +46,8 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     logger.info("ALL_CUSTOMERS TRANSFORMATION - OPTIMIZED")
     logger.info("=" * 70)
     logger.info("")
-    output_path = os.path.join(SALES_DATA_PATH, "All_Customers_Python.csv")
-    legacy_path = os.path.join(SALES_DATA_PATH, "RePos_Archive.csv")
+    output_path = os.path.join(LOCAL_STAGING_PATH, "All_Customers_Python.csv")
+    legacy_path = os.path.join(LOCAL_STAGING_PATH, "RePos_Archive.csv")
 
     # =====================================================================
     # PHASE 1: LOAD CC CUSTOMERS

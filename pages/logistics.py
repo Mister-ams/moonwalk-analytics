@@ -6,10 +6,11 @@ and trend charts for Total Stops and Items Delivered.
 """
 
 import streamlit as st
+import plotly.graph_objects as go
 from dashboard_shared import (
     inject_global_styles, get_connection,
     change_html, headline_card, sub_card, detail_card,
-    get_display_window, render_metric_selector,
+    compute_fetch_periods, render_metric_selector,
     render_page_header, render_page_title, render_section_heading, render_footer,
     fmt_count, fmt_dhs_sub, fmt_pct,
     COLORS,
@@ -26,11 +27,7 @@ sub_bg = COLORS["logistics"]["sub"]
 render_page_title("Logistics", hdr)
 
 # Fetch data
-window = get_display_window(selected_period, available_periods)
-first_idx = available_periods.index(window[0])
-fetch_periods = (
-    [available_periods[first_idx - 1]] if first_idx > 0 else []
-) + window
+window, fetch_periods = compute_fetch_periods(selected_period, available_periods)
 lg_data = fetch_logistics_batch(con, tuple(fetch_periods))
 
 cur = lg_data.get(selected_period, {})
@@ -106,6 +103,53 @@ def _geo_rows(data, prev_data):
         rows.append((label, display, change_html(val, prev_val)))
     return rows
 
+# ─── Geographic Percentage Split Chart ────────────────────────────────
+_geo_metrics = [
+    ("Customers", "customers"),
+    ("Items", "items"),
+    ("Stops", "stops"),
+    ("Revenue", "revenue"),
+]
+_inside_vals = [inside.get(k, 0) for _, k in _geo_metrics]
+_outer_vals = [outer.get(k, 0) for _, k in _geo_metrics]
+_totals = [i + o if (i + o) > 0 else 1 for i, o in zip(_inside_vals, _outer_vals)]
+_inside_pcts = [i / t * 100 for i, t in zip(_inside_vals, _totals)]
+_outer_pcts = [o / t * 100 for o, t in zip(_outer_vals, _totals)]
+_geo_labels = [lbl for lbl, _ in _geo_metrics]
+
+geo_fig = go.Figure()
+geo_fig.add_trace(go.Bar(
+    y=_geo_labels, x=_inside_pcts, orientation="h",
+    name="Inside Abu Dhabi", marker_color="#1565C0",
+    text=[f"{v:.0f}%" for v in _inside_pcts], textposition="inside",
+    textfont=dict(color="#fff", size=12, weight=700),
+    hovertemplate="%{y}: %{x:.0f}% Inside<extra></extra>",
+))
+geo_fig.add_trace(go.Bar(
+    y=_geo_labels, x=_outer_pcts, orientation="h",
+    name="Outer Abu Dhabi", marker_color="#90CAF9",
+    text=[f"{v:.0f}%" for v in _outer_pcts], textposition="inside",
+    textfont=dict(color="#333", size=12, weight=700),
+    hovertemplate="%{y}: %{x:.0f}% Outer<extra></extra>",
+))
+geo_fig.update_layout(
+    barmode="stack",
+    height=250,
+    margin=dict(t=30, b=20, l=80, r=20),
+    paper_bgcolor="#ffffff",
+    plot_bgcolor="rgba(0,0,0,0)",
+    xaxis=dict(showticklabels=False, showgrid=False, fixedrange=True, range=[0, 100]),
+    yaxis=dict(tickfont=dict(size=12), fixedrange=True, autorange="reversed"),
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5,
+                font=dict(size=11)),
+    dragmode=False,
+)
+_, geo_center, _ = st.columns([1, 18, 1])
+with geo_center:
+    st.plotly_chart(geo_fig, key="geo_split_chart", use_container_width=True,
+                    config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False})
+
+# ─── Geographic Detail Cards ──────────────────────────────────────────
 g1, g2 = st.columns(2)
 with g1:
     st.markdown(

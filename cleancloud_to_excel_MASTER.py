@@ -253,6 +253,90 @@ def run_transform_inprocess(module_name: str, transform_name: str, description: 
         return False, elapsed
 
 
+# =====================================================================
+# INTER-STAGE VALIDATION
+# =====================================================================
+
+# Expected key columns per transform output
+_KEY_COLUMNS = {
+    'all_customers_df':    ['CustomerID_Std'],
+    'all_sales_df':        ['CustomerID_Std', 'OrderID_Std'],
+    'all_items_df':        ['CustomerID_Std', 'OrderID_Std'],
+    'customer_quality_df': ['CustomerID_Std'],
+}
+
+
+def _validate_transform_output(transform_name: str, df: pd.DataFrame) -> None:
+    """Validate a single transform's output for row counts and null key columns."""
+    issues = []
+
+    # Row count sanity check
+    if len(df) == 0:
+        issues.append("EMPTY: 0 rows produced")
+
+    # Null key columns check
+    for key_col in _KEY_COLUMNS.get(transform_name, []):
+        if key_col in df.columns:
+            null_count = df[key_col].isna().sum()
+            if null_count > 0:
+                pct = null_count / len(df) * 100
+                issues.append(f"NULL KEYS: {null_count:,} ({pct:.1f}%) null values in {key_col}")
+
+    if issues:
+        logger.warning(f"  [VALIDATION] {transform_name}:")
+        for issue in issues:
+            logger.warning(f"    - {issue}")
+    else:
+        logger.info(f"  [VALIDATION] {transform_name}: OK ({len(df):,} rows, keys clean)")
+
+
+def _validate_cross_transform(shared_data: Dict) -> None:
+    """Cross-transform validation: orphan orders, customer coverage."""
+    logger.info("\n" + "-" * 70)
+    logger.info("CROSS-TRANSFORM VALIDATION")
+    logger.info("-" * 70)
+
+    sales_df = shared_data.get('all_sales_df')
+    items_df = shared_data.get('all_items_df')
+    customers_df = shared_data.get('all_customers_df')
+
+    if sales_df is None or items_df is None:
+        logger.warning("  [SKIP] Sales or items data not available for cross-validation")
+        return
+
+    # 1. Orphan order check: items with no matching sales order
+    sales_orders = set(sales_df['OrderID_Std'].dropna().unique())
+    items_orders = set(items_df['OrderID_Std'].dropna().unique())
+    orphan_orders = items_orders - sales_orders
+    orphan_count = len(orphan_orders)
+    orphan_pct = orphan_count / len(items_orders) * 100 if items_orders else 0
+
+    if orphan_count > 0:
+        # Count affected item rows
+        orphan_item_rows = items_df[items_df['OrderID_Std'].isin(orphan_orders)]
+        logger.warning(
+            f"  [WARN] Orphan orders: {orphan_count:,} orders in items with no sales match "
+            f"({orphan_pct:.1f}% of item orders, {len(orphan_item_rows):,} item rows)"
+        )
+        logger.info(f"    Known issue: CleanCloud CSV export mismatch (not ETL bug)")
+    else:
+        logger.info(f"  [OK] No orphan orders (all item orders found in sales)")
+
+    # 2. Customer coverage: sales customers missing from customers table
+    if customers_df is not None:
+        sales_customers = set(sales_df['CustomerID_Std'].dropna().unique())
+        known_customers = set(customers_df['CustomerID_Std'].dropna().unique())
+        missing_customers = sales_customers - known_customers
+        if missing_customers:
+            logger.warning(
+                f"  [WARN] {len(missing_customers)} customer(s) in sales but not in customers table"
+            )
+        else:
+            logger.info(f"  [OK] All sales customers found in customers table")
+
+    logger.info("")
+
+
 def run_all_transforms() -> bool:
     """Run all Python transformation scripts"""
     
@@ -308,7 +392,15 @@ def run_all_transforms() -> bool:
         if not success:
             logger.error(f"\n[ERROR] Stopping due to failure in {transform['description']}")
             return False
-    
+
+        # Inter-stage validation: check output integrity
+        df_result = shared_data.get(transform['transform_name'])
+        if df_result is not None:
+            _validate_transform_output(transform['transform_name'], df_result)
+
+    # STEP 3: Cross-transform validation (orphan orders, key integrity)
+    _validate_cross_transform(shared_data)
+
     total_elapsed = time.time() - total_start
     
     # Summary

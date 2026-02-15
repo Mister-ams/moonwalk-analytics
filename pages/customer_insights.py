@@ -9,7 +9,7 @@ import streamlit as st
 from dashboard_shared import (
     inject_global_styles, get_connection, is_weekly,
     change_html, headline_card, sub_card,
-    get_display_window, render_metric_selector,
+    compute_fetch_periods, render_metric_selector,
     render_page_header, render_page_title, render_section_heading, render_footer,
     fmt_count, fmt_dhs, fmt_dhs_sub, fmt_pct,
     COLORS,
@@ -33,11 +33,7 @@ if is_weekly(selected_period):
     st.stop()
 
 # Fetch data (display window + one extra for period-over-period)
-window = get_display_window(selected_period, available_periods)
-first_idx = available_periods.index(window[0])
-fetch_periods = (
-    [available_periods[first_idx - 1]] if first_idx > 0 else []
-) + window
+window, fetch_periods = compute_fetch_periods(selected_period, available_periods)
 
 ci_data = fetch_customer_insights_batch(con, tuple(fetch_periods))
 cur = ci_data.get(selected_period, {})

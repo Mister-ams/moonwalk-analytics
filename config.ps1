@@ -9,4 +9,11 @@ $MoonwalkConfig = @{
     LocalStagingFolder = $(if ($env:MOONWALK_STAGING)       { $env:MOONWALK_STAGING }       else { 'C:\Users\MRAL-\Downloads\Lime Reporting' })
     OneDriveDataFolder = $(if ($env:MOONWALK_ONEDRIVE_DATA) { $env:MOONWALK_ONEDRIVE_DATA } else { Join-Path (Split-Path $PSScriptRoot -Parent) 'Sales Data' })
     DownloadsPath      = $(if ($env:MOONWALK_DOWNLOADS)     { $env:MOONWALK_DOWNLOADS }     else { 'C:\Users\MRAL-\Downloads' })
+    RequiredCsvs       = @(
+        'All_Customers_Python.csv'
+        'All_Sales_Python.csv'
+        'All_Items_Python.csv'
+        'Customer_Quality_Monthly_Python.csv'
+        'DimPeriod_Python.csv'
+    )
 }

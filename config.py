@@ -18,12 +18,14 @@ _DATA_DIR   = _SCRIPT_DIR.parent                     # Moonwalk Data/
 # PATHS (override via env vars for portability)
 # =====================================================================
 
+_HOME = Path.home()
+
 DOWNLOADS_PATH = Path(
-    os.environ.get("MOONWALK_DOWNLOADS", r"C:\Users\MRAL-\Downloads")
+    os.environ.get("MOONWALK_DOWNLOADS", str(_HOME / "Downloads"))
 )
 
 LOCAL_STAGING_PATH = Path(
-    os.environ.get("MOONWALK_STAGING", r"C:\Users\MRAL-\Downloads\Lime Reporting")
+    os.environ.get("MOONWALK_STAGING", str(_HOME / "Downloads" / "Lime Reporting"))
 )
 
 ONEDRIVE_SALES_DATA_PATH = Path(

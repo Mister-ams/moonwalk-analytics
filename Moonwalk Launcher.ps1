@@ -2,7 +2,7 @@
 .SYNOPSIS
     Moonwalk Analytics Launcher
 .DESCRIPTION
-    Interactive menu to launch workflows, ETL scripts, dashboard, and Claude Code.
+    Interactive menu to launch workflows, ETL scripts, dashboard, Claude Code, and ChatGPT CLI.
     PowerShell replacement for the old Moonwalk Launcher.bat + moonwalk_launcher.py.
 #>
 
@@ -10,6 +10,26 @@ $ErrorActionPreference = 'Continue'
 $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Definition
 . "$ScriptDir\config.ps1"
 $WorkingDir  = $MoonwalkConfig.LocalStagingFolder
+$ChatGPTLauncherScript = Join-Path $ScriptDir 'launch_chatgpt_cli.py'
+$PythonExe  = $null
+
+$PythonCandidates = @()
+if ($env:MOONWALK_PYTHON_EXE) { $PythonCandidates += $env:MOONWALK_PYTHON_EXE }
+$PythonCandidates += (Join-Path $env:LOCALAPPDATA 'Python\bin\python.exe')
+
+$pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+if ($pythonCmd) {
+    $pythonCmdPath = if ($pythonCmd.Path) { $pythonCmd.Path } else { $pythonCmd.Source }
+    if ($pythonCmdPath) { $PythonCandidates += $pythonCmdPath }
+}
+
+foreach ($candidate in $PythonCandidates) {
+    if (-not $candidate) { continue }
+    if ((Test-Path $candidate) -and ($candidate -notmatch '\\Microsoft\\WindowsApps\\python\.exe$')) {
+        $PythonExe = $candidate
+        break
+    }
+}
 
 # ── Script catalogue ────────────────────────────────────────────────
 $Scripts = @(
@@ -60,6 +80,7 @@ function Show-Menu {
     Write-Host ''
     Write-Host "  $Divider"
     Write-Host '  [C]  Open Claude Code in project directory'
+    Write-Host '  [G]  Open ChatGPT CLI in project directory'
     Write-Host '  [Q]  Quit'
     Write-Host "  $Divider"
     Write-Host ''
@@ -74,6 +95,31 @@ function Start-ClaudeCode {
     }
     catch {
         Write-Host "  ERROR: Could not launch Claude Code. Is it installed and in PATH?"
+    }
+}
+
+function Start-ChatGPTCLI {
+    Write-Host "`n  Launching ChatGPT CLI ...`n"
+    if (-not (Test-Path $WorkingDir)) {
+        Write-Host "  ERROR: Working directory not found: $WorkingDir" -ForegroundColor Red
+        return
+    }
+
+    # Codex CLI is a full-screen TUI — launch in a new PowerShell window
+    # using the npm .ps1 shim so it gets direct terminal ownership.
+    $codexScript = Join-Path $env:APPDATA 'npm\codex.ps1'
+    if (-not (Test-Path $codexScript)) {
+        Write-Host '  ERROR: Codex CLI not found. Install with: npm install -g @openai/codex' -ForegroundColor Red
+        return
+    }
+
+    Write-Host "  Using: $codexScript"
+    try {
+        Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -NoExit -Command Set-Location '$WorkingDir'; & '$codexScript'"
+        Write-Host '  Codex CLI window opened.'
+    }
+    catch {
+        Write-Host '  ERROR: Could not launch Codex CLI.' -ForegroundColor Red
     }
 }
 
@@ -127,6 +173,10 @@ while ($true) {
     }
     elseif ($choice -eq 'C') {
         Start-ClaudeCode
+        Read-Host "`n  Press Enter to continue..."
+    }
+    elseif ($choice -eq 'G') {
+        Start-ChatGPTCLI
         Read-Host "`n  Press Enter to continue..."
     }
     else {

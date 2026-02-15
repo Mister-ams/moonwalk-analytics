@@ -95,10 +95,21 @@ def dirham_html(value, decimals=0, size=18):
 # CARD RENDERING
 # =====================================================================
 
-def change_html(current, previous):
-    """Return HTML for a MoM change pill with colored background."""
+def change_html(current, previous, size="normal"):
+    """Return HTML for a MoM change pill with colored background.
+
+    Parameters:
+        size -- "normal" (default) or "compact" for sub-metric rows
+    """
+    if size == "compact":
+        dash_style = 'font-size:0.7rem;color:#aaa;'
+        pill_style = 'font-size:0.65rem;font-weight:700;padding:0.1rem 0.4rem;border-radius:0.5rem;'
+    else:
+        dash_style = 'font-size:0.8rem;color:#aaa;'
+        pill_style = 'font-size:0.8rem;font-weight:700;padding:0.2rem 0.6rem;border-radius:0.75rem;letter-spacing:0.02em;'
+
     if previous is None or previous == 0:
-        return '<span style="font-size:0.8rem;color:#aaa;">&mdash;</span>'
+        return f'<span style="{dash_style}">&mdash;</span>'
     pct = (current - previous) / abs(previous) * 100
     if pct > 0.5:
         arrow, bg, fg = "\u25b2", "#a5d6a7", "#1b5e20"
@@ -108,8 +119,7 @@ def change_html(current, previous):
         arrow, bg, fg = "\u25a0", "#fff176", "#f57f17"
     return (
         f'<span style="display:inline-block;background:{bg};color:{fg};'
-        f'font-size:0.8rem;font-weight:700;padding:0.2rem 0.6rem;'
-        f'border-radius:0.75rem;letter-spacing:0.02em;">'
+        f'{pill_style}">'
         f'{arrow} {pct:+.0f}%</span>'
     )
 
@@ -128,6 +138,54 @@ def headline_card(label, value_html, change, header_color):
         f'<div style="margin-top:0.2rem;">{change}</div>'
         f'</div></div>'
     )
+
+
+def headline_card_with_subs(label, value_html, change, header_color, subs):
+    """Headline card with integrated sub-metric rows.
+
+    Parameters:
+        label        -- main card heading text
+        value_html   -- formatted main value (HTML safe)
+        change       -- MoM change HTML from change_html()
+        header_color -- colored header banner background
+        subs         -- list of (sub_label, sub_value_html, sub_change_html) tuples
+    """
+    html = (
+        f'<div class="headline-card-wrap" style="border-radius:0.75rem;overflow:hidden;'
+        f'background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.18);'
+        f'transition:transform 0.15s ease, box-shadow 0.15s ease;">'
+        f'<div style="background:{header_color};padding:0.5rem 0;text-align:center;">'
+        f'<span style="color:#fff;font-weight:700;font-size:0.95rem;'
+        f'letter-spacing:0.04em;">{label}</span></div>'
+        f'<div style="padding:0.5rem 0.5rem 0.3rem;text-align:center;">'
+        f'<div style="font-size:2rem;font-weight:700;color:#0e1117;'
+        f'line-height:1.3;">{value_html}</div>'
+        f'<div style="margin-top:0.2rem;">{change}</div>'
+        f'</div>'
+    )
+    if subs:
+        html += (
+            '<div style="border-top:1px solid #eee;margin:0 0.5rem;"></div>'
+            '<div style="padding:0.3rem 0.6rem 0.5rem;">'
+        )
+        for sub_label, sub_val, sub_chg in subs:
+            html += (
+                f'<div style="display:flex;justify-content:space-between;'
+                f'align-items:center;padding:0.2rem 0;">'
+                f'<span style="font-size:0.82rem;color:#666;">{sub_label}</span>'
+                f'<span style="font-size:0.95rem;font-weight:700;color:#0e1117;">'
+                f'{sub_val} {sub_chg}</span>'
+                f'</div>'
+            )
+        html += '</div>'
+    # "View Details" footer cue
+    html += (
+        '<div style="border-top:1px solid #eee;margin:0 0.5rem;"></div>'
+        '<div style="text-align:center;padding:0.3rem 0;color:#999;'
+        'font-size:0.78rem;">View Details &rarr;</div>'
+    )
+    html += '</div>'
+    return html
 
 
 def sub_card(label, value_html, change, bg_color):
@@ -177,16 +235,20 @@ def detail_card(title, rows, title_color, bg_color):
 # =====================================================================
 
 COLORS = {
-    "customers":         {"header": "#004D40", "sub": "#E0F2F1"},
-    "items":             {"header": "#4E342E", "sub": "#F5EBE6"},
-    "revenues":          {"header": "#4A148C", "sub": "#EDE7F6"},
-    "stops":             {"header": "#1A5276", "sub": "#E3EEF6"},
-    "customer_report":   {"header": "#BF360C", "sub": "#FBE9E7"},
-    "customer_insights": {"header": "#BF360C", "sub": "#FBE9E7"},
-    "cohort":            {"header": "#1B5E20", "sub": "#E8F5E9"},
-    "logistics":         {"header": "#0D47A1", "sub": "#E3F2FD"},
-    "operations":        {"header": "#E65100", "sub": "#FFF3E0"},
-    "payments":          {"header": "#37474F", "sub": "#ECEFF1"},
+    # Primary — boldest treatment for the "money" metric
+    "revenues":          {"header": "#4A148C", "sub": "#F3F0F8"},
+    # Secondary — important but not financial
+    "customers":         {"header": "#00695C", "sub": "#F0F7F6"},
+    "items":             {"header": "#5D4037", "sub": "#F5F1EF"},
+    # Tertiary — operational / analytical, neutral tones
+    "stops":             {"header": "#546E7A", "sub": "#F2F5F7"},
+    "customer_report":   {"header": "#795548", "sub": "#F5F1EF"},
+    "customer_insights": {"header": "#795548", "sub": "#F5F1EF"},
+    "cohort":            {"header": "#2E7D32", "sub": "#F1F7F1"},
+    "logistics":         {"header": "#37474F", "sub": "#F2F4F5"},
+    "payments":          {"header": "#455A64", "sub": "#F2F4F5"},
+    # Accent — needs contrast for interactive selectors
+    "operations":        {"header": "#BF360C", "sub": "#FCF3F0"},
 }
 
 METRIC_CONFIG = {
@@ -307,10 +369,10 @@ def fmt_dhs(v):
 
 
 def fmt_dhs_sub(v):
-    """Sub-card: Dirham SVG sized to match 1.4rem text (~20px)."""
+    """Sub-card: Dirham SVG sized to match 1.4rem text (~20px), 80% ratio."""
     return (
         f'<img src="data:image/svg+xml;base64,{_DIRHAM_B64}" '
-        f'style="height:1.15rem;vertical-align:baseline;margin-right:0.2rem;" '
+        f'style="height:1.12rem;vertical-align:baseline;margin-right:0.2rem;" '
         f'alt="Dhs" />{v:,.0f}'
     )
 
@@ -354,6 +416,12 @@ def get_connection():
             for required in ("sales", "dim_period"):
                 if required not in tables:
                     raise RuntimeError(f"Table '{required}' missing from {db_file.name}")
+            # Create order_lookup if missing (backward compat with older DB files)
+            if "order_lookup" not in tables:
+                con.execute("""
+                    CREATE TABLE order_lookup AS
+                    SELECT DISTINCT OrderID_Std, IsSubscriptionService FROM sales
+                """)
             return con
         except Exception as e:
             st.warning(f"Could not open {db_file.name}: {e}. Falling back to CSV.")
@@ -371,6 +439,10 @@ def get_connection():
     con.execute(f"CREATE TABLE sales AS SELECT * FROM read_csv_auto('{SALES_CSV}')")
     con.execute(f"CREATE TABLE items AS SELECT * FROM read_csv_auto('{ITEMS_CSV}')")
     con.execute(f"CREATE TABLE dim_period AS SELECT * FROM read_csv_auto('{DIMPERIOD_CSV}')")
+    con.execute("""
+        CREATE TABLE order_lookup AS
+        SELECT DISTINCT OrderID_Std, IsSubscriptionService FROM sales
+    """)
     return con
 
 
@@ -378,11 +450,20 @@ def get_connection():
 # MEASURES
 # =====================================================================
 
+def get_grain_context(period_or_periods):
+    """Return dict with period_col and sales_join for current grain."""
+    sample = period_or_periods[0] if isinstance(period_or_periods, (list, tuple)) else period_or_periods
+    weekly = is_weekly(sample)
+    return {
+        "period_col": "p.ISOWeekLabel" if weekly else "p.YearMonth",
+        "sales_join": "s.Earned_Date = p.Date" if weekly else "s.OrderCohortMonth = p.Date",
+    }
+
+
 def fetch_measures(con, period):
     """Return all snapshot measures for a given period string (monthly or weekly)."""
-    weekly = is_weekly(period)
-    period_col = "p.ISOWeekLabel" if weekly else "p.YearMonth"
-    sales_join = "s.Earned_Date = p.Date" if weekly else "s.OrderCohortMonth = p.Date"
+    ctx = get_grain_context(period)
+    period_col, sales_join = ctx["period_col"], ctx["sales_join"]
 
     cust_row = con.execute(f"""
         SELECT
@@ -407,12 +488,10 @@ def fetch_measures(con, period):
             COALESCE(SUM(CASE WHEN sub.iss = 1 THEN sub.qty END), 0)
         FROM (
             SELECT i.Quantity AS qty,
-                   COALESCE(sd.IsSubscriptionService, 0) AS iss
+                   COALESCE(ol.IsSubscriptionService, 0) AS iss
             FROM items i
             JOIN dim_period p ON i.ItemDate = p.Date
-            LEFT JOIN (
-                SELECT DISTINCT OrderID_Std, IsSubscriptionService FROM sales
-            ) sd ON i.OrderID_Std = sd.OrderID_Std
+            LEFT JOIN order_lookup ol ON i.OrderID_Std = ol.OrderID_Std
             WHERE {period_col} = $1
         ) sub
     """, [period]).fetchone()
@@ -463,9 +542,8 @@ def fetch_measures(con, period):
 def fetch_measures_batch(_con, periods_tuple):
     """Fetch all measures for multiple periods in 4 batched SQL queries."""
     periods = list(periods_tuple)
-    weekly = is_weekly(periods[0])
-    period_col = "p.ISOWeekLabel" if weekly else "p.YearMonth"
-    sales_join = "s.Earned_Date = p.Date" if weekly else "s.OrderCohortMonth = p.Date"
+    ctx = get_grain_context(periods)
+    period_col, sales_join = ctx["period_col"], ctx["sales_join"]
     placeholders = ", ".join(f"'{p}'" for p in periods)
 
     cust_df = _con.execute(f"""
@@ -489,12 +567,10 @@ def fetch_measures_batch(_con, periods_tuple):
                COALESCE(SUM(CASE WHEN sub.iss = 1 THEN sub.qty END), 0) AS items_sub
         FROM (
             SELECT {period_col} AS period, i.Quantity AS qty,
-                   COALESCE(sd.IsSubscriptionService, 0) AS iss
+                   COALESCE(ol.IsSubscriptionService, 0) AS iss
             FROM items i
             JOIN dim_period p ON i.ItemDate = p.Date
-            LEFT JOIN (
-                SELECT DISTINCT OrderID_Std, IsSubscriptionService FROM sales
-            ) sd ON i.OrderID_Std = sd.OrderID_Std
+            LEFT JOIN order_lookup ol ON i.OrderID_Std = ol.OrderID_Std
             WHERE {period_col} IN ({placeholders})
         ) sub
         GROUP BY sub.period
@@ -591,11 +667,22 @@ def get_display_window(selected_period, available_periods):
 get_6_month_window = get_display_window
 
 
+def compute_fetch_periods(selected_period, available_periods):
+    """Compute display window + fetch periods (prepend 1 prior for MoM)."""
+    window = get_display_window(selected_period, available_periods)
+    first_idx = available_periods.index(window[0])
+    fetch_periods = ([available_periods[first_idx - 1]] if first_idx > 0 else []) + window
+    return window, fetch_periods
+
 
 def render_trend_chart_v2(active_key, trend_data, display_periods,
                           available_periods, config, bar_color,
                           show_title=True, height=400):
-    """V2 chart: period-over-period annotations below date labels."""
+    """V2 chart: period-over-period annotations below date labels.
+
+    Compact charts (height < 400) hide below-bar annotations and show
+    MoM change in hover tooltip instead, saving ~70px of vertical space.
+    """
     metric_key = config["key"]
     is_currency = config["is_currency"]
     is_percentage = config.get("is_percentage", False)
@@ -618,43 +705,65 @@ def render_trend_chart_v2(active_key, trend_data, display_periods,
     bar_text_size = 10 if weekly else 13
     ann_text_size = 10 if weekly else 13
 
+    # Compact charts: skip below-bar annotations, use hover instead
+    show_annotations = height >= 400
+
+    # Build per-bar MoM change data for hover on compact charts
+    mom_texts = []
+    for i, m in enumerate(display_periods):
+        val = values[i]
+        m_idx = available_periods.index(m) if m in available_periods else -1
+        prev_m = available_periods[m_idx - 1] if m_idx > 0 else None
+        prev_val = trend_data.get(prev_m, {}).get(metric_key) if prev_m else None
+        if prev_val is not None and prev_val != 0:
+            pct = (val - prev_val) / abs(prev_val) * 100
+            mom_texts.append(f"{pct:+.0f}%")
+        else:
+            mom_texts.append("--")
+
+    hover_template = (
+        "<b>%{x}</b><br>%{text}<br>MoM: %{customdata}<extra></extra>"
+        if not show_annotations else None
+    )
+
     fig = go.Figure(go.Bar(
         x=labels, y=values,
         text=text_labels, textposition="outside",
         textfont=dict(size=bar_text_size, weight=700),
         marker_color=bar_color, marker_line=dict(width=0),
         cliponaxis=False,
+        customdata=mom_texts if not show_annotations else None,
+        hovertemplate=hover_template,
     ))
 
-    for i, m in enumerate(display_periods):
-        val = values[i]
-        m_idx = available_periods.index(m) if m in available_periods else -1
-        prev_m = available_periods[m_idx - 1] if m_idx > 0 else None
-        prev_val = trend_data.get(prev_m, {}).get(metric_key) if prev_m else None
+    if show_annotations:
+        for i, m in enumerate(display_periods):
+            val = values[i]
+            m_idx = available_periods.index(m) if m in available_periods else -1
+            prev_m = available_periods[m_idx - 1] if m_idx > 0 else None
+            prev_val = trend_data.get(prev_m, {}).get(metric_key) if prev_m else None
 
-        if prev_val is not None and prev_val != 0:
-            pct = (val - prev_val) / abs(prev_val) * 100
-            if pct > 0.5:
-                arrow, fg = "\u25b2", "#1b5e20"
-            elif pct < -0.5:
-                arrow, fg = "\u25bc", "#b71c1c"
+            if prev_val is not None and prev_val != 0:
+                pct = (val - prev_val) / abs(prev_val) * 100
+                if pct > 0.5:
+                    arrow, fg = "\u25b2", "#1b5e20"
+                elif pct < -0.5:
+                    arrow, fg = "\u25bc", "#b71c1c"
+                else:
+                    arrow, fg = "\u25a0", "#f57f17"
+                ann_text = f"<b>{arrow} {pct:+.0f}%</b>"
             else:
-                arrow, fg = "\u25a0", "#f57f17"
-            ann_text = f"<b>{arrow} {pct:+.0f}%</b>"
-        else:
-            ann_text = "\u2014"
-            fg = "#999"
+                ann_text = "\u2014"
+                fg = "#999"
 
-        # Push annotations lower on shorter charts to avoid clipping dates
-        ann_y = -0.32 if height < 400 else -0.22
-        fig.add_annotation(
-            x=labels[i], y=ann_y, text=ann_text, showarrow=False,
-            font=dict(size=ann_text_size, color=fg),
-            xref="x", yref="paper",
-        )
+            fig.add_annotation(
+                x=labels[i], y=-0.22, text=ann_text, showarrow=False,
+                font=dict(size=ann_text_size, color=fg),
+                xref="x", yref="paper",
+            )
 
     top_margin = 70 if show_title else 45
-    bot_margin = 130 if height < 400 else 110
+    bot_margin = 60 if not show_annotations else 110
 
     fig.update_layout(
         title=dict(text=config["label"], font=dict(size=16, weight=700)) if show_title else dict(text=""),
@@ -752,6 +861,19 @@ def inject_global_styles():
         .detail-back a[data-testid="stPageLink-NavLink"]:hover {
             opacity: 1;
         }
+
+        /* headline card hover — lift effect for interactivity cue */
+        .headline-card-wrap:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.22) !important;
+            cursor: pointer;
+        }
+
+        /* pills — compact granularity toggle */
+        div[data-testid="stPills"] button {
+            font-size: 0.85rem !important;
+            padding: 0.25rem 0.75rem !important;
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -761,7 +883,7 @@ def inject_global_styles():
 # =====================================================================
 
 def period_selector(con, show_title=True):
-    """Render title + period dropdown with weekly/monthly toggle.
+    """Render title + period dropdown with segmented monthly/weekly control.
 
     Returns (selected_period, available_periods).
     Persists selection in st.session_state for cross-page navigation.
@@ -773,13 +895,14 @@ def period_selector(con, show_title=True):
     if "_weekly_persist" not in st.session_state:
         st.session_state["_weekly_persist"] = False
 
-    def _on_weekly_change():
-        st.session_state["_weekly_persist"] = st.session_state["_weekly_toggle"]
-
-    weekly_mode = st.toggle(
-        "Weekly", value=st.session_state["_weekly_persist"],
-        key="_weekly_toggle", on_change=_on_weekly_change,
+    # Segmented control: pills widget
+    current_default = "Weekly" if st.session_state["_weekly_persist"] else "Monthly"
+    selected_grain = st.pills(
+        "Granularity", options=["Monthly", "Weekly"],
+        default=current_default, label_visibility="collapsed",
     )
+    weekly_mode = selected_grain == "Weekly"
+    st.session_state["_weekly_persist"] = weekly_mode
 
     if weekly_mode:
         periods_df = con.execute("""
@@ -846,7 +969,7 @@ def render_page_header(con):
 
     Returns (selected_period, available_periods).
     """
-    left, right = st.columns([3, 1])
+    left, right = st.columns([2, 1])
     with left:
         st.markdown('<div class="detail-back">', unsafe_allow_html=True)
         st.page_link("pages/overview.py", label="\u2190 Back to Overview", icon="\U0001f3e0")
@@ -877,16 +1000,16 @@ def render_page_title(text, color):
 
 
 def render_footer():
-    """Render the standard page footer with data source and freshness timestamp."""
+    """Render the standard page footer with data freshness timestamp."""
     st.markdown("---")
-    st.caption(f"Data: {SALES_CSV}")
-    # Show actual data freshness (DB file modification time), not page render time
     db_path = Path(DB_PATH)
     if db_path.exists():
         mtime = datetime.fromtimestamp(db_path.stat().st_mtime)
-        st.caption(f"Data as of: {mtime.strftime('%Y-%m-%d %H:%M:%S')}")
+        label = f"{mtime.day} {mtime.strftime('%b %Y')}"
     else:
-        st.caption(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        now = datetime.now()
+        label = f"{now.day} {now.strftime('%b %Y')}"
+    st.caption(f":clock1: Data as of {label}")
 
 
 # =====================================================================
@@ -1120,11 +1243,7 @@ def render_detail_page(page_key):
         return
 
     # Fetch data (display window + one extra for period-over-period)
-    window = get_display_window(selected_period, available_periods)
-    first_idx = available_periods.index(window[0])
-    fetch_periods = (
-        [available_periods[first_idx - 1]] if first_idx > 0 else []
-    ) + window
+    window, fetch_periods = compute_fetch_periods(selected_period, available_periods)
 
     fetch_type = cfg["fetch"]
     if fetch_type == "monthly":

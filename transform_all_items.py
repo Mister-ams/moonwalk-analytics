@@ -17,11 +17,13 @@ from typing import Optional, Dict, Tuple
 warnings.filterwarnings('ignore')
 
 from helpers import (
+    find_cleancloud_file, vectorized_to_date, vectorized_store_std,
     vectorized_customer_id_std, vectorized_order_id_std,
     vectorized_item_category, vectorized_service_type,
     format_dates_for_csv,
-    DOWNLOADS_PATH, SALES_DATA_PATH
+    DOWNLOADS_PATH,
 )
+from config import LOCAL_STAGING_PATH
 
 from logger_config import setup_logger
 logger = setup_logger(__name__)
@@ -48,7 +50,7 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     logger.info("ALL_ITEMS TRANSFORMATION - OPTIMIZED")
     logger.info("=" * 70)
     logger.info("")
-    output_path = os.path.join(SALES_DATA_PATH, "All_Items_Python.csv")
+    output_path = os.path.join(LOCAL_STAGING_PATH, "All_Items_Python.csv")
 
     # =====================================================================
     # PHASE 1: LOAD BUSINESS ACCOUNTS

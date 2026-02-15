@@ -10,16 +10,15 @@ Provides batch SQL fetch for customer acquisition and per-customer item measures
 """
 
 import streamlit as st
-from dashboard_shared import is_weekly
+from dashboard_shared import get_grain_context
 
 
 @st.cache_data(ttl=300)
 def fetch_customer_measures_batch(_con, periods_tuple):
     """Fetch customer, item, and revenue measures for multiple periods in three queries."""
     periods = list(periods_tuple)
-    weekly = is_weekly(periods[0])
-    period_col = "p.ISOWeekLabel" if weekly else "p.YearMonth"
-    sales_join = "s.Earned_Date = p.Date" if weekly else "s.OrderCohortMonth = p.Date"
+    ctx = get_grain_context(periods)
+    period_col, sales_join = ctx["period_col"], ctx["sales_join"]
     placeholders = ", ".join(f"'{p}'" for p in periods)
 
     # Query 1: customer counts
@@ -48,12 +47,10 @@ def fetch_customer_measures_batch(_con, periods_tuple):
                COALESCE(SUM(CASE WHEN sub.iss = 1 THEN sub.qty END), 0) AS items_sub
         FROM (
             SELECT {period_col} AS period, i.Quantity AS qty,
-                   COALESCE(sd.IsSubscriptionService, 0) AS iss
+                   COALESCE(ol.IsSubscriptionService, 0) AS iss
             FROM items i
             JOIN dim_period p ON i.ItemDate = p.Date
-            LEFT JOIN (
-                SELECT DISTINCT OrderID_Std, IsSubscriptionService FROM sales
-            ) sd ON i.OrderID_Std = sd.OrderID_Std
+            LEFT JOIN order_lookup ol ON i.OrderID_Std = ol.OrderID_Std
             WHERE {period_col} IN ({placeholders})
         ) sub
         GROUP BY sub.period

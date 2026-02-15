@@ -28,7 +28,8 @@ from config import (
 from logger_config import setup_logger
 logger = setup_logger(__name__)
 
-# Backward-compatible alias used by transform scripts
+# DEPRECATED: Use LOCAL_STAGING_PATH from config.py directly.
+# Kept for backward compatibility with any external references.
 SALES_DATA_PATH = LOCAL_STAGING_PATH
 
 
@@ -73,11 +74,13 @@ def find_cleancloud_file(pattern: str, downloads_path: Optional[str] = None, req
 # VECTORIZED DATE CONVERSION (replaces .apply(fx_to_date))
 # =====================================================================
 
-def vectorized_to_date(series: pd.Series) -> pd.Series:
+def vectorized_to_date(series: pd.Series, column_name: str = '') -> pd.Series:
     """
     Vectorized date conversion - 5-10x faster than .apply(fx_to_date).
     Handles Excel serial numbers (e.g. 45292) AND text dates (e.g. '2024-01-15').
     Returns pd.Series of datetime64[ns] with NaT for nulls.
+
+    Warns when >5% of non-null values parse to NaT (possible upstream format change).
     """
     s = series.astype(str).str.strip()
     result = pd.Series(pd.NaT, index=series.index, dtype='datetime64[ns]')
@@ -104,6 +107,24 @@ def vectorized_to_date(series: pd.Series) -> pd.Series:
     if non_numeric.any():
         parsed = pd.to_datetime(s[non_numeric], format='mixed', errors='coerce')
         result.loc[parsed.index] = parsed
+
+    # Step 3: Check NaT rate on non-null input values
+    non_null_input = series.notna() & (s != '') & (s != 'nan') & (s != 'None')
+    non_null_count = non_null_input.sum()
+    if non_null_count > 0:
+        nat_count = result[non_null_input].isna().sum()
+        nat_pct = nat_count / non_null_count * 100
+        col_label = f" [{column_name}]" if column_name else ""
+        if nat_pct > 5:
+            logger.warning(
+                f"  [WARN] vectorized_to_date{col_label}: {nat_count:,}/{non_null_count:,} "
+                f"({nat_pct:.1f}%) parsed to NaT -- possible format change in source CSV"
+            )
+        elif nat_count > 0:
+            logger.debug(
+                f"  vectorized_to_date{col_label}: {nat_count:,}/{non_null_count:,} "
+                f"({nat_pct:.1f}%) parsed to NaT"
+            )
 
     return result
 
@@ -173,6 +194,21 @@ def fx_standardize_name(name: Any) -> str:
     for ch in (' ', '-', '.', "'", ','):
         s = s.replace(ch, '')
     return s
+
+
+def vectorized_name_standardize(series: pd.Series) -> pd.Series:
+    """Vectorized name standardization - replaces .apply(fx_standardize_name)."""
+    return (
+        series.fillna("")
+        .astype(str)
+        .str.upper()
+        .str.strip()
+        .str.replace(" ", "", regex=False)
+        .str.replace("-", "", regex=False)
+        .str.replace(".", "", regex=False)
+        .str.replace("'", "", regex=False)
+        .str.replace(",", "", regex=False)
+    )
 
 
 # =====================================================================
@@ -501,7 +537,7 @@ def calculate_months_since_cohort(order_cohort_month: Any, customer_cohort_month
         om = pd.to_datetime(order_cohort_month)
         cm = pd.to_datetime(customer_cohort_month)
         return int((om.year - cm.year) * 12 + (om.month - cm.month))
-    except:
+    except (ValueError, TypeError):
         return None
 
 

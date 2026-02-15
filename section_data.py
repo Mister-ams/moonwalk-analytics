@@ -10,7 +10,7 @@ Provides cached batch SQL fetch functions for:
 """
 
 import streamlit as st
-from dashboard_shared import is_weekly
+from dashboard_shared import get_grain_context
 
 
 # =====================================================================
@@ -180,9 +180,8 @@ def compute_cohort_retention(trend_data, available_months, selected_month):
 def fetch_logistics_batch(_con, periods_tuple):
     """Fetch stops, delivery metrics, and geographic distribution."""
     periods = list(periods_tuple)
-    weekly = is_weekly(periods[0])
-    period_col = "p.ISOWeekLabel" if weekly else "p.YearMonth"
-    sales_join = "s.Earned_Date = p.Date" if weekly else "s.OrderCohortMonth = p.Date"
+    ctx = get_grain_context(periods)
+    period_col, sales_join = ctx["period_col"], ctx["sales_join"]
     placeholders = ", ".join(f"'{p}'" for p in periods)
 
     # Query 1: Headlines
@@ -256,9 +255,8 @@ def fetch_logistics_batch(_con, periods_tuple):
 def fetch_operations_batch(_con, periods_tuple):
     """Fetch items and revenue by Item_Category and Service_Type."""
     periods = list(periods_tuple)
-    weekly = is_weekly(periods[0])
-    period_col = "p.ISOWeekLabel" if weekly else "p.YearMonth"
-    sales_join = "s.Earned_Date = p.Date" if weekly else "s.OrderCohortMonth = p.Date"
+    ctx = get_grain_context(periods)
+    period_col, sales_join = ctx["period_col"], ctx["sales_join"]
     placeholders = ", ".join(f"'{p}'" for p in periods)
 
     # Query 1: By Item_Category
@@ -335,9 +333,8 @@ def fetch_operations_batch(_con, periods_tuple):
 def fetch_payments_batch(_con, periods_tuple):
     """Fetch revenue, collections by method, and processing metrics."""
     periods = list(periods_tuple)
-    weekly = is_weekly(periods[0])
-    period_col = "p.ISOWeekLabel" if weekly else "p.YearMonth"
-    sales_join = "s.Earned_Date = p.Date" if weekly else "s.OrderCohortMonth = p.Date"
+    ctx = get_grain_context(periods)
+    period_col, sales_join = ctx["period_col"], ctx["sales_join"]
     placeholders = ", ".join(f"'{p}'" for p in periods)
 
     df = _con.execute(f"""

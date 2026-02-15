@@ -18,12 +18,7 @@ $CsvFolder  = $MoonwalkConfig.LocalStagingFolder
 $DbPath     = Join-Path (Split-Path $ScriptDir -Parent) 'analytics.duckdb'
 $Port       = 8504
 
-$RequiredCsvs = @(
-    'All_Sales_Python.csv'
-    'All_Items_Python.csv'
-    'All_Customers_Python.csv'
-    'DimPeriod_Python.csv'
-)
+$RequiredCsvs = $MoonwalkConfig.RequiredCsvs
 
 $Divider = '-' * 60
 

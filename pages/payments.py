@@ -9,7 +9,7 @@ import streamlit as st
 from dashboard_shared import (
     inject_global_styles, get_connection,
     change_html, headline_card, sub_card,
-    get_display_window, render_metric_selector,
+    compute_fetch_periods, render_metric_selector,
     render_page_header, render_page_title, render_section_heading, render_footer,
     fmt_count, fmt_dhs, fmt_dhs_sub, fmt_days,
     COLORS,
@@ -26,11 +26,7 @@ sub_bg = COLORS["payments"]["sub"]
 render_page_title("Payments", hdr)
 
 # Fetch data
-window = get_display_window(selected_period, available_periods)
-first_idx = available_periods.index(window[0])
-fetch_periods = (
-    [available_periods[first_idx - 1]] if first_idx > 0 else []
-) + window
+window, fetch_periods = compute_fetch_periods(selected_period, available_periods)
 pm_data = fetch_payments_batch(con, tuple(fetch_periods))
 
 cur = pm_data.get(selected_period, {})

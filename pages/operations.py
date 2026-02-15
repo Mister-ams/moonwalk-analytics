@@ -8,7 +8,7 @@ with interactive button selectors and trend charts.
 import streamlit as st
 from dashboard_shared import (
     inject_global_styles, get_connection,
-    change_html, sub_card, get_display_window,
+    change_html, sub_card, compute_fetch_periods,
     render_trend_chart_v2,
     render_page_header, render_page_title, render_section_heading, render_footer,
     fmt_count, fmt_dhs_sub, fmt_days,
@@ -26,11 +26,7 @@ sub_bg = COLORS["operations"]["sub"]
 render_page_title("Operations", hdr)
 
 # Fetch data
-window = get_display_window(selected_period, available_periods)
-first_idx = available_periods.index(window[0])
-fetch_periods = (
-    [available_periods[first_idx - 1]] if first_idx > 0 else []
-) + window
+window, fetch_periods = compute_fetch_periods(selected_period, available_periods)
 ops_data = fetch_operations_batch(con, tuple(fetch_periods))
 
 cur = ops_data.get(selected_period, {})

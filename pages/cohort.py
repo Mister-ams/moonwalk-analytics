@@ -8,7 +8,7 @@ with trend charts and retention rate sub-cards.
 import streamlit as st
 from dashboard_shared import (
     inject_global_styles, get_connection, is_weekly,
-    change_html, sub_card, get_display_window, render_metric_selector,
+    change_html, sub_card, compute_fetch_periods, render_metric_selector,
     render_page_header, render_page_title, render_section_heading, render_footer,
     fmt_count, fmt_dhs_sub, fmt_ratio, fmt_pct,
     COLORS,
@@ -31,11 +31,7 @@ if is_weekly(selected_period):
     st.stop()
 
 # Fetch data
-window = get_display_window(selected_period, available_periods)
-first_idx = available_periods.index(window[0])
-fetch_periods = (
-    [available_periods[first_idx - 1]] if first_idx > 0 else []
-) + window
+window, fetch_periods = compute_fetch_periods(selected_period, available_periods)
 cohort_data = fetch_cohort_batch(con, tuple(fetch_periods))
 
 cur = cohort_data.get(selected_period, {})

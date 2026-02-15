@@ -97,6 +97,13 @@ function Remove-LockFile {
     }
 }
 
+function Exit-WithError ([string]$Message) {
+    Write-Host "  ERROR: $Message" -ForegroundColor Red
+    Remove-LockFile
+    if (-not $NoPause) { Read-Host "Press Enter to exit" }
+    exit 1
+}
+
 # Check for existing lock
 if (Test-LockFile) {
     if (-not $NoPause) {
@@ -135,14 +142,8 @@ $DATA_FOLDER          = $MoonwalkConfig.DataFolder
 $LOCAL_STAGING_FOLDER = $MoonwalkConfig.LocalStagingFolder
 $ONEDRIVE_DATA_FOLDER = $MoonwalkConfig.OneDriveDataFolder
 
-# CSV files to sync
-$CSV_FILES = @(
-    "All_Customers_Python.csv",
-    "All_Sales_Python.csv",
-    "All_Items_Python.csv",
-    "Customer_Quality_Monthly_Python.csv",
-    "DimPeriod_Python.csv"
-)
+# CSV files to sync (centralized in config.ps1)
+$CSV_FILES = $MoonwalkConfig.RequiredCsvs
 
 $PYTHON_SCRIPT = "cleancloud_to_excel_MASTER.py"
 
@@ -167,30 +168,19 @@ try {
     Write-Host "  OK Python found: $pythonVersion" -ForegroundColor Green
 }
 catch {
-    Write-Host "  ERROR: Python not found in PATH" -ForegroundColor Red
-    Remove-LockFile
-    Read-Host "Press Enter to exit"
-    exit 1
+    Exit-WithError "Python not found in PATH"
 }
 
 # Check Python script folder
 if (-not (Test-Path $PYTHON_SCRIPT_FOLDER)) {
-    Write-Host "  ERROR: Python script folder not found" -ForegroundColor Red
-    Write-Host "  Expected: $PYTHON_SCRIPT_FOLDER"
-    Remove-LockFile
-    Read-Host "Press Enter to exit"
-    exit 1
+    Exit-WithError "Python script folder not found: $PYTHON_SCRIPT_FOLDER"
 }
 Write-Host "  OK Python script folder found" -ForegroundColor Green
 
 # Check master script exists
 $scriptPath = Join-Path $PYTHON_SCRIPT_FOLDER $PYTHON_SCRIPT
 if (-not (Test-Path $scriptPath)) {
-    Write-Host "  ERROR: Python script not found" -ForegroundColor Red
-    Write-Host "  Expected: $scriptPath"
-    Remove-LockFile
-    Read-Host "Press Enter to exit"
-    exit 1
+    Exit-WithError "Python script not found: $scriptPath"
 }
 Write-Host "  OK Python master script found" -ForegroundColor Green
 
@@ -202,10 +192,7 @@ $excelFiles = Get-ChildItem -Path $DATA_FOLDER -Filter "Lime_Reporting*.xlsx" |
     Sort-Object LastWriteTime -Descending
 
 if ($excelFiles.Count -eq 0) {
-    Write-Host "  ERROR: No Lime_Reporting*.xlsx files found in $DATA_FOLDER" -ForegroundColor Red
-    Remove-LockFile
-    Read-Host "Press Enter to exit"
-    exit 1
+    Exit-WithError "No Lime_Reporting*.xlsx files found in $DATA_FOLDER"
 }
 
 $EXCEL_FILE = $excelFiles[0].FullName
@@ -244,14 +231,8 @@ try {
     Write-Host ""
 }
 catch {
-    Write-Host ""
-    Write-Host "[ERROR] Python transformation failed!" -ForegroundColor Red
-    Write-Host $_.Exception.Message
-    Write-Host ""
     Pop-Location
-    Remove-LockFile
-    Read-Host "Press Enter to exit"
-    exit 1
+    Exit-WithError "Python transformation failed: $($_.Exception.Message)"
 }
 
 # Verify CSV files exist in LOCAL staging
@@ -265,13 +246,7 @@ foreach ($csvFile in $CSV_FILES) {
 }
 
 if ($missingFiles.Count -gt 0) {
-    Write-Host "  ERROR: Missing CSV files in local staging:" -ForegroundColor Red
-    foreach ($file in $missingFiles) {
-        Write-Host "    - $file" -ForegroundColor Red
-    }
-    Remove-LockFile
-    Read-Host "Press Enter to exit"
-    exit 1
+    Exit-WithError "Missing CSV files in local staging: $($missingFiles -join ', ')"
 }
 Write-Host "  OK All 5 CSV files present in local staging" -ForegroundColor Green
 Write-Host ""
@@ -462,13 +437,9 @@ try {
     Write-Host ""
 }
 catch {
-    Write-Host ""
-    Write-Host "  [ERROR] Excel refresh failed!" -ForegroundColor Red
-    Write-Host $_.Exception.Message
-    Write-Host ""
-    
+    # COM cleanup
     if ($excel) {
-        try { 
+        try {
             $excel.Calculation = -4105
             $excel.EnableEvents = $true
             $excel.ScreenUpdating = $true
@@ -476,14 +447,12 @@ catch {
     }
     if ($workbook) { try { $workbook.Close($false) } catch {} }
     if ($excel) { try { $excel.Quit() } catch {} }
-    
+
     # Stop background jobs
     if ($syncJob) { Stop-Job -Job $syncJob; Remove-Job -Job $syncJob }
     if ($duckdbJob) { Stop-Job -Job $duckdbJob; Remove-Job -Job $duckdbJob }
 
-    Remove-LockFile
-    Read-Host "Press Enter to exit"
-    exit 1
+    Exit-WithError "Excel refresh failed: $($_.Exception.Message)"
 }
 
 # ─────────────────────────────────────────────────────────────────────

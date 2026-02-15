@@ -19,15 +19,14 @@ from typing import Optional, Dict, Tuple
 warnings.filterwarnings('ignore')
 
 from helpers import (
+    find_cleancloud_file, vectorized_to_date, vectorized_store_std,
     vectorized_customer_id_std, vectorized_order_id_std,
     vectorized_payment_type_std, vectorized_route_category,
     vectorized_months_since_cohort, vectorized_subscription_flag,
-    fx_standardize_name, format_dates_for_csv,
-    DOWNLOADS_PATH, SALES_DATA_PATH
+    vectorized_name_standardize, format_dates_for_csv,
+    DOWNLOADS_PATH,
 )
-
-from logger_config import setup_logger
-logger = setup_logger(__name__)
+from config import LOCAL_STAGING_PATH
 
 from logger_config import setup_logger
 logger = setup_logger(__name__)
@@ -59,7 +58,7 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     logger.info("ALL_SALES TRANSFORMATION - OPTIMIZED")
     logger.info("=" * 70)
     logger.info("")
-    output_path = os.path.join(SALES_DATA_PATH, "All_Sales_Python.csv")
+    output_path = os.path.join(LOCAL_STAGING_PATH, "All_Sales_Python.csv")
 
     # =====================================================================
     # PHASE 1: LOAD DEPENDENCIES
@@ -82,7 +81,7 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
 
     # Customer name lookup (vectorized instead of iterrows)
     name_df = df_customers[df_customers['Name'].notna()].copy()
-    name_df['name_std'] = name_df['Name'].apply(fx_standardize_name)
+    name_df['name_std'] = vectorized_name_standardize(name_df['Name'])
     cid_digits = name_df['Customer ID'].astype(str).str.replace(r'\D', '', regex=True)
     name_df['cust_std'] = 'CC-' + cid_digits.str.zfill(4)
     name_df = name_df[name_df['name_std'] != '']
@@ -95,7 +94,7 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
         df_all_customers = shared_data['all_customers_df'].copy()
     else:
         df_all_customers = pd.read_csv(
-            os.path.join(SALES_DATA_PATH, "All_Customers_Python.csv"), encoding='utf-8'
+            os.path.join(LOCAL_STAGING_PATH, "All_Customers_Python.csv"), encoding='utf-8'
         )
 
     df_all_customers['CohortMonth'] = vectorized_to_date(df_all_customers['CohortMonth'])
@@ -124,7 +123,7 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     df_subs['Payment_Date'] = vectorized_to_date(df_subs['Payment Date'])
     df_subs = df_subs[df_subs['Payment_Date'].notna()].copy()
 
-    df_subs['CustomerName_Std'] = df_subs['Customer'].apply(fx_standardize_name)
+    df_subs['CustomerName_Std'] = vectorized_name_standardize(df_subs['Customer'])
     df_subs['CustomerID_Std'] = df_subs['CustomerName_Std'].map(customer_name_lookup)
 
     df_subs['ValidFrom'] = df_subs['Payment_Date']
@@ -157,7 +156,7 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     if shared_data and 'legacy_csv' in shared_data:
         df_legacy = shared_data['legacy_csv']  # No copy needed - immediately reassigned below
     else:
-        df_legacy = pd.read_csv(os.path.join(SALES_DATA_PATH, "RePos_Archive.csv"),
+        df_legacy = pd.read_csv(os.path.join(LOCAL_STAGING_PATH, "RePos_Archive.csv"),
                                 encoding='utf-8', low_memory=False)
 
     df_legacy = df_legacy[[c for c in order_columns if c in df_legacy.columns]].copy()
@@ -341,9 +340,9 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     # Vectorized name standardization + lookup
     df['_name_std'] = None
     if is_sub_or_inv.any():
-        df.loc[is_sub_or_inv, '_name_std'] = df.loc[is_sub_or_inv, 'Customer_Name'].apply(
-            lambda x: fx_standardize_name(x) if pd.notna(x) else None
-        )
+        df.loc[is_sub_or_inv, '_name_std'] = vectorized_name_standardize(
+            df.loc[is_sub_or_inv, 'Customer_Name']
+        ).replace("", None)
 
     df['_cid_lookup'] = df['_name_std'].map(customer_name_lookup)
 
