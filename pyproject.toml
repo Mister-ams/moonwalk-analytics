@@ -1,0 +1,36 @@
+[project]
+name = "moonwalk-analytics"
+version = "2.6.0"
+description = "Data pipeline and dashboard for Moonwalk laundry/dry-cleaning analytics"
+requires-python = ">=3.12"
+dependencies = [
+    "polars>=1.0",
+    "duckdb>=1.0",
+    "streamlit>=1.40",
+    "plotly>=5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "slow: marks tests that run the full pipeline (deselect with '-m \"not slow\"')",
+    "integration: marks integration tests requiring fixtures or DuckDB",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]

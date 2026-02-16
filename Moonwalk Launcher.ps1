@@ -40,7 +40,7 @@ $Scripts = @(
 
     # ETL Pipeline
     @{ File = 'cleancloud_to_excel_MASTER.py';   Desc = 'ETL orchestrator - runs all transforms';           Section = 'ETL Pipeline' }
-    @{ File = 'cleancloud_to_duckdb.py';         Desc = 'Rebuild analytics.duckdb from staging CSVs';       Section = $null }
+    @{ File = 'cleancloud_to_duckdb.py';         Desc = 'Rebuild analytics.duckdb from Parquet files';      Section = $null }
 
     # Individual Transforms
     @{ File = 'generate_dimperiod.py';                  Desc = 'Date dimension table (auto 3-month lookahead)';  Section = 'Individual Transforms' }
@@ -50,7 +50,9 @@ $Scripts = @(
     @{ File = 'transform_customer_quality_monthly.py';  Desc = 'Monthly customer quality scoring';               Section = $null }
 
     # Utilities
-    @{ File = 'extract_powerquery_mcode.ps1';    Desc = 'Extract Power Query M-code from Excel';             Section = 'Utilities' }
+    @{ File = 'refresh_cli.py';                  Desc = 'Cross-platform refresh (ETL + DuckDB, no Excel)';   Section = 'Utilities' }
+    @{ File = 'verify_migration.py';             Desc = 'Verify ETL output against golden baselines';        Section = $null }
+    @{ File = 'extract_powerquery_mcode.ps1';    Desc = 'Extract Power Query M-code from Excel';             Section = $null }
 )
 
 $Divider = '-' * 70

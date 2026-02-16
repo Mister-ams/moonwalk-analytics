@@ -14,30 +14,20 @@ $ErrorActionPreference = 'Stop'
 # ── Configuration ───────────────────────────────────────────────────
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Definition
 . "$ScriptDir\config.ps1"
+. "$ScriptDir\helpers.ps1"
+. "$ScriptDir\logger_config.ps1"
+
 $CsvFolder  = $MoonwalkConfig.LocalStagingFolder
-$DbPath     = Join-Path (Split-Path $ScriptDir -Parent) 'analytics.duckdb'
-$Port       = 8504
+$DataFolder = Split-Path $ScriptDir -Parent
+$DbPath     = Join-Path $DataFolder 'analytics.duckdb'
+$Port       = $MoonwalkConfig.DashboardPort
 
 $RequiredCsvs = $MoonwalkConfig.RequiredCsvs
 
 $Divider = '-' * 60
 
-# ── Helpers ─────────────────────────────────────────────────────────
-function Write-Step ([string]$Message) {
-    Write-Host "  [*] $Message" -ForegroundColor Cyan
-}
-
-function Write-Ok ([string]$Message) {
-    Write-Host "  [+] $Message" -ForegroundColor Green
-}
-
-function Write-Warn ([string]$Message) {
-    Write-Host "  [!] $Message" -ForegroundColor Yellow
-}
-
-function Write-Fail ([string]$Message) {
-    Write-Host "  [-] $Message" -ForegroundColor Red
-}
+# ── Logging ───────────────────────────────────────────────────────
+$LogFile = Initialize-MoonwalkLog -DataFolder $DataFolder
 
 # ── 1. Pre-flight: check CSVs ──────────────────────────────────────
 Write-Host ""
@@ -96,31 +86,35 @@ else {
 }
 
 if ($needsRebuild) {
-    Write-Step "Rebuilding analytics.duckdb ..."
+    Write-Step "Rebuilding analytics.duckdb (timeout: $($MoonwalkConfig.DuckDbTimeoutSeconds)s) ..."
     $duckScript = Join-Path $ScriptDir 'cleancloud_to_duckdb.py'
 
     if (Test-Path $duckScript) {
-        Push-Location $ScriptDir
-        try {
-            python $duckScript 2>&1 | ForEach-Object { Write-Host "        $_" }
-            if ($LASTEXITCODE -eq 0) {
-                Write-Ok "DuckDB rebuild complete."
-            }
-            else {
-                Write-Warn "DuckDB rebuild returned exit code $LASTEXITCODE - dashboard will fall back to CSV."
-            }
+        $duckResult = Invoke-WithTimeout -ScriptBlock {
+            param($ScriptFolder)
+            Set-Location $ScriptFolder
+            $output = & python "$ScriptFolder\cleancloud_to_duckdb.py" 2>&1
+            return @{ ExitCode = $LASTEXITCODE; Output = ($output -join "`n") }
+        } -ArgumentList @($ScriptDir) -TimeoutSeconds $MoonwalkConfig.DuckDbTimeoutSeconds -Label 'DuckDB rebuild'
+
+        if ($duckResult.TimedOut) {
+            Write-MoonwalkLog -Level WARN -Message "DuckDB rebuild timed out after $($MoonwalkConfig.DuckDbTimeoutSeconds)s - dashboard will fall back to CSV." -LogFile $LogFile
         }
-        catch {
-            Write-Warn "DuckDB rebuild failed: $_ - dashboard will fall back to CSV."
+        elseif ($duckResult.Success -and $duckResult.Output.ExitCode -eq 0) {
+            Write-Ok "DuckDB rebuild complete ($([math]::Round($duckResult.Seconds, 1))s)."
+            Write-MoonwalkLog -Level INFO -Message "DuckDB rebuild complete ($([math]::Round($duckResult.Seconds, 1))s)" -LogFile $LogFile
         }
-        finally { Pop-Location }
+        else {
+            Write-Warn "DuckDB rebuild failed - dashboard will fall back to CSV."
+            Write-MoonwalkLog -Level WARN -Message "DuckDB rebuild failed after $([math]::Round($duckResult.Seconds, 1))s" -LogFile $LogFile
+        }
     }
     else {
         Write-Warn "cleancloud_to_duckdb.py not found - dashboard will use CSV fallback."
     }
 }
 
-# ── 3. Port: clear stale Streamlit ─────────────────────────────────
+# ── 3. Port: clear stale Streamlit (retry loop) ──────────────────
 Write-Step "Checking port $Port ..."
 
 $portConn = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
@@ -139,13 +133,22 @@ if ($portConn) {
         }
     }
 
-    # Brief pause to let the port release
-    Start-Sleep -Seconds 2
+    # Retry loop: check port every 2s, up to 5 attempts (10s total)
+    $maxRetries = 5
+    $portFreed = $false
+    for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+        Start-Sleep -Seconds 2
+        $stillBusy = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+        if (-not $stillBusy) {
+            $portFreed = $true
+            break
+        }
+        Write-Warn "Port $Port still busy (attempt $attempt/$maxRetries) ..."
+    }
 
-    # Verify port is free
-    $stillBusy = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
-    if ($stillBusy) {
-        Write-Fail "Port $Port is still occupied. Cannot launch dashboard."
+    if (-not $portFreed) {
+        Write-Fail "Port $Port is still occupied after $($maxRetries * 2)s. Cannot launch dashboard."
+        Write-MoonwalkLog -Level ERROR -Message "Port $Port not freed after $($maxRetries * 2)s" -LogFile $LogFile
         Read-Host "  Press Enter to exit"
         exit 1
     }

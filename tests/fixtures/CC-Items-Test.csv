@@ -1,0 +1,9 @@
+Order ID,Customer ID,Business ID,Store Name,Source,Item,Section,Quantity,Total,Express,Date
+1001,101,36319,Moon Walk - AD,CC_2025,Kandura,Dry Cleaning,1,80.00,0,2025-01-15
+1001,101,36319,Moon Walk - AD,CC_2025,Shirt,Wash & Press,2,70.00,0,2025-01-15
+1002,101,36319,Moon Walk - AD,CC_2025,Abaya,Dry Cleaning,1,120.00,0,2025-01-20
+1002,101,36319,Moon Walk - AD,CC_2025,Trouser,Press Only,1,80.00,0,2025-01-20
+1003,102,38516,Hielo,CC_2025,Duvet Cover,Laundry,1,75.00,0,2025-02-05
+1004,103,36319,Moon Walk - AD,CC_2025,Shoe Cleaning,Extras,1,50.00,0,2025-02-10
+1005,101,36319,Moon Walk - AD,CC_2025,Suit Jacket,Dry Cleaning,1,100.00,0,2025-02-15
+1005,101,36319,Moon Walk - AD,CC_2025,Curtain,Laundry,1,80.00,0,2025-02-15

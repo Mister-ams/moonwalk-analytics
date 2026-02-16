@@ -16,4 +16,11 @@ $MoonwalkConfig = @{
         'Customer_Quality_Monthly_Python.csv'
         'DimPeriod_Python.csv'
     )
+
+    # Named constants (replaces magic numbers)
+    XlCalculationManual    = -4135
+    XlCalculationAutomatic = -4105
+    DashboardPort          = 8504
+    ExcelTimeoutSeconds    = 300
+    DuckDbTimeoutSeconds   = 120
 }

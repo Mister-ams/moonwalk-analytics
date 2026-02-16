@@ -1,0 +1,6 @@
+Order ID,Customer ID,Business ID,Store Name,Source,Total,Status,Placed,Ready By,Cleaned,Collected,Pickup Date,Payment Date,Delivery Date,Pieces,Delivery,Route #,Payment Type
+1001,101,36319,Moon Walk - AD,CC_2025,150.00,Completed,2025-01-15,2025-01-17,2025-01-16,2025-01-17,2025-01-15,2025-01-17,2025-01-17,3,1,2,Cash
+1002,101,36319,Moon Walk - AD,CC_2025,200.00,Completed,2025-01-20,2025-01-22,2025-01-21,2025-01-22,,,2025-01-22,5,0,,Card Terminal
+1003,102,38516,Hielo,CC_2025,75.00,Completed,2025-02-05,2025-02-07,2025-02-06,2025-02-07,2025-02-05,,2025-02-07,2,1,5,Bank Transfer / Stripe
+1004,103,36319,Moon Walk - AD,CC_2025,50.00,Completed,2025-02-10,2025-02-12,2025-02-11,2025-02-12,,,2025-02-12,1,0,,Cash
+1005,101,36319,Moon Walk - AD,CC_2025,180.00,Completed,2025-02-15,2025-02-17,2025-02-16,2025-02-17,2025-02-15,2025-02-17,2025-02-17,4,1,1,Card Terminal

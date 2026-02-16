@@ -43,11 +43,20 @@ DIMPERIOD_CSV = str(LOCAL_STAGING_PATH / "DimPeriod_Python.csv")
 DB_PATH       = _DATA_DIR / "analytics.duckdb"
 
 # =====================================================================
+# ENVIRONMENT
+# =====================================================================
+
+MOONWALK_ENV = os.environ.get("MOONWALK_ENV", "production")  # production | development
+
+# =====================================================================
 # LOGGING CONFIGURATION
 # =====================================================================
 
 LOGS_PATH = _DATA_DIR / "logs"
-LOG_LEVEL = os.environ.get("MOONWALK_LOG_LEVEL", "INFO")
+LOG_LEVEL = os.environ.get(
+    "MOONWALK_LOG_LEVEL",
+    "DEBUG" if MOONWALK_ENV == "development" else "INFO",
+)
 
 # =====================================================================
 # BUSINESS CONSTANTS

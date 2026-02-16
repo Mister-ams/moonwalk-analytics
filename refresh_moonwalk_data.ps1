@@ -19,6 +19,8 @@ param([switch]$NoPause)
 # LOCK FILE MECHANISM (prevents concurrent runs)
 # =====================================================================
 
+. "$PSScriptRoot\helpers.ps1"
+
 $LOCK_FILE = Join-Path $env:TEMP "moonwalk_refresh.lock"
 $LOCK_STALE_HOURS = 2
 
@@ -97,11 +99,8 @@ function Remove-LockFile {
     }
 }
 
-function Exit-WithError ([string]$Message) {
-    Write-Host "  ERROR: $Message" -ForegroundColor Red
-    Remove-LockFile
-    if (-not $NoPause) { Read-Host "Press Enter to exit" }
-    exit 1
+function Exit-WithRefreshError ([string]$Message) {
+    Exit-WithError -Message $Message -LockFile $LOCK_FILE -NoPause:$NoPause
 }
 
 # Check for existing lock
@@ -136,6 +135,7 @@ Write-Host ""
 # =====================================================================
 
 . "$PSScriptRoot\config.ps1"
+. "$PSScriptRoot\logger_config.ps1"
 
 $PYTHON_SCRIPT_FOLDER = $MoonwalkConfig.PythonScriptFolder
 $DATA_FOLDER          = $MoonwalkConfig.DataFolder
@@ -146,6 +146,10 @@ $ONEDRIVE_DATA_FOLDER = $MoonwalkConfig.OneDriveDataFolder
 $CSV_FILES = $MoonwalkConfig.RequiredCsvs
 
 $PYTHON_SCRIPT = "cleancloud_to_excel_MASTER.py"
+
+# Persistent logging
+$LogFile = Initialize-MoonwalkLog -DataFolder $DATA_FOLDER
+Write-MoonwalkLog -Level INFO -Message "Refresh started (v2.5.5)" -LogFile $LogFile
 
 # =====================================================================
 # PRE-FLIGHT CHECKS
@@ -168,19 +172,19 @@ try {
     Write-Host "  OK Python found: $pythonVersion" -ForegroundColor Green
 }
 catch {
-    Exit-WithError "Python not found in PATH"
+    Exit-WithRefreshError "Python not found in PATH"
 }
 
 # Check Python script folder
 if (-not (Test-Path $PYTHON_SCRIPT_FOLDER)) {
-    Exit-WithError "Python script folder not found: $PYTHON_SCRIPT_FOLDER"
+    Exit-WithRefreshError "Python script folder not found: $PYTHON_SCRIPT_FOLDER"
 }
 Write-Host "  OK Python script folder found" -ForegroundColor Green
 
 # Check master script exists
 $scriptPath = Join-Path $PYTHON_SCRIPT_FOLDER $PYTHON_SCRIPT
 if (-not (Test-Path $scriptPath)) {
-    Exit-WithError "Python script not found: $scriptPath"
+    Exit-WithRefreshError "Python script not found: $scriptPath"
 }
 Write-Host "  OK Python master script found" -ForegroundColor Green
 
@@ -192,7 +196,7 @@ $excelFiles = Get-ChildItem -Path $DATA_FOLDER -Filter "Lime_Reporting*.xlsx" |
     Sort-Object LastWriteTime -Descending
 
 if ($excelFiles.Count -eq 0) {
-    Exit-WithError "No Lime_Reporting*.xlsx files found in $DATA_FOLDER"
+    Exit-WithRefreshError "No Lime_Reporting*.xlsx files found in $DATA_FOLDER"
 }
 
 $EXCEL_FILE = $excelFiles[0].FullName
@@ -232,7 +236,7 @@ try {
 }
 catch {
     Pop-Location
-    Exit-WithError "Python transformation failed: $($_.Exception.Message)"
+    Exit-WithRefreshError "Python transformation failed: $($_.Exception.Message)"
 }
 
 # Verify CSV files exist in LOCAL staging
@@ -246,7 +250,7 @@ foreach ($csvFile in $CSV_FILES) {
 }
 
 if ($missingFiles.Count -gt 0) {
-    Exit-WithError "Missing CSV files in local staging: $($missingFiles -join ', ')"
+    Exit-WithRefreshError "Missing CSV files in local staging: $($missingFiles -join ', ')"
 }
 Write-Host "  OK All 5 CSV files present in local staging" -ForegroundColor Green
 Write-Host ""
@@ -352,11 +356,23 @@ $phase4Time = 0
 $phase5Time = 0
 $phase6Time = 0
 
+# Watchdog: kills EXCEL.EXE if refresh exceeds timeout
+$excelTimeout = $MoonwalkConfig.ExcelTimeoutSeconds
+Write-MoonwalkLog -Level INFO -Message "Excel refresh starting (timeout: ${excelTimeout}s)" -LogFile $LogFile
+
+$watchdog = Start-Job -ScriptBlock {
+    param($Seconds)
+    Start-Sleep -Seconds $Seconds
+    # If we reach here, Excel has hung
+    Get-Process -Name 'EXCEL' -ErrorAction SilentlyContinue | Stop-Process -Force
+    return "TIMEOUT"
+} -ArgumentList $excelTimeout
+
 try {
     # PHASE 1: Open Excel
     Write-Host "    [PHASE 1] Opening Excel application..." -ForegroundColor Yellow
     $phase1Start = Get-Date
-    
+
     $excel = New-Object -ComObject Excel.Application
     $excel.Visible = $false
     $excel.DisplayAlerts = $false
@@ -378,7 +394,7 @@ try {
     $phase3Start = Get-Date
     
     $originalCalcMode = $excel.Calculation
-    $excel.Calculation = -4135  # xlCalculationManual
+    $excel.Calculation = $MoonwalkConfig.XlCalculationManual
     $excel.EnableEvents = $false
     $excel.ScreenUpdating = $false
     
@@ -431,16 +447,30 @@ try {
     $phase6Time = ((Get-Date) - $phase6Start).TotalSeconds
     Write-Host "    [OK] Saved and closed ($([math]::Round($phase6Time, 2))s)" -ForegroundColor Green
     
+    # Cancel watchdog (Excel completed normally)
+    Stop-Job -Job $watchdog -ErrorAction SilentlyContinue
+    Remove-Job -Job $watchdog -Force -ErrorAction SilentlyContinue
+
     $excelTime = (Get-Date) - $excelStartTime
     Write-Host ""
     Write-Host "  [OK] Excel refresh completed in $([math]::Round($excelTime.TotalSeconds, 1)) seconds" -ForegroundColor Green
+    Write-MoonwalkLog -Level INFO -Message "Excel refresh completed in $([math]::Round($excelTime.TotalSeconds, 1))s" -LogFile $LogFile
     Write-Host ""
 }
 catch {
+    # Cancel watchdog
+    Stop-Job -Job $watchdog -ErrorAction SilentlyContinue
+    $watchdogOutput = Receive-Job -Job $watchdog -ErrorAction SilentlyContinue
+    Remove-Job -Job $watchdog -Force -ErrorAction SilentlyContinue
+
+    if ($watchdogOutput -eq "TIMEOUT") {
+        Write-MoonwalkLog -Level ERROR -Message "Excel refresh timed out after ${excelTimeout}s - EXCEL.EXE killed by watchdog" -LogFile $LogFile
+    }
+
     # COM cleanup
     if ($excel) {
         try {
-            $excel.Calculation = -4105
+            $excel.Calculation = $MoonwalkConfig.XlCalculationAutomatic
             $excel.EnableEvents = $true
             $excel.ScreenUpdating = $true
         } catch {}
@@ -452,7 +482,7 @@ catch {
     if ($syncJob) { Stop-Job -Job $syncJob; Remove-Job -Job $syncJob }
     if ($duckdbJob) { Stop-Job -Job $duckdbJob; Remove-Job -Job $duckdbJob }
 
-    Exit-WithError "Excel refresh failed: $($_.Exception.Message)"
+    Exit-WithRefreshError "Excel refresh failed: $($_.Exception.Message)"
 }
 
 # ─────────────────────────────────────────────────────────────────────
@@ -566,6 +596,7 @@ Write-Host ""
 # Clean up lock file
 Remove-LockFile
 Write-Host "  [OK] Lock file removed" -ForegroundColor Green
+Write-MoonwalkLog -Level INFO -Message "Refresh completed in $([math]::Round($totalTime.TotalSeconds, 1))s" -LogFile $LogFile
 Write-Host ""
 
 if (-not $NoPause) {
