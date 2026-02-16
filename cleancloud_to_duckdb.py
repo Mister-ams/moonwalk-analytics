@@ -13,6 +13,7 @@ Output:
 """
 
 import duckdb
+import json
 from pathlib import Path
 from datetime import datetime
 import os
@@ -23,10 +24,13 @@ import sys
 # CONFIGURATION (centralized in config.py)
 # =====================================================================
 
-from config import LOCAL_STAGING_PATH, DB_PATH
+from config import LOCAL_STAGING_PATH, DB_PATH, LOGS_PATH
 
 from logger_config import setup_logger
 logger = setup_logger(__name__)
+
+# Profiling accumulator
+_profile_entries = []
 
 CSV_FOLDER = LOCAL_STAGING_PATH
 
@@ -66,6 +70,23 @@ INT_COLUMNS = {
         'Processing_Days': 'SMALLINT',
         'TimeInStore_Days': 'SMALLINT',
         'DaysToPayment': 'SMALLINT',
+    },
+}
+
+# ENUM type definitions for low-cardinality columns (data quality + storage)
+ENUM_COLUMNS = {
+    'sales': {
+        'Source':           ['CC_2025', 'Legacy'],
+        'Transaction_Type': ['Order', 'Subscription', 'Invoice Payment'],
+        'Payment_Type_Std': ['Stripe', 'Terminal', 'Cash', 'Receivable', 'Other'],
+        'Store_Std':        ['Moon Walk', 'Hielo'],
+        'Route_Category':   ['Inside Abu Dhabi', 'Outer Abu Dhabi', 'Other'],
+    },
+    'items': {
+        'Source':         ['CC_2025'],
+        'Store_Std':      ['Moon Walk', 'Hielo'],
+        'Item_Category':  ['Professional Wear', 'Traditional Wear', 'Home Linens', 'Extras', 'Others'],
+        'Service_Type':   ['Wash & Press', 'Dry Cleaning', 'Press Only', 'Other Service'],
     },
 }
 
@@ -138,27 +159,39 @@ def create_database():
     logger.info("")
     total_rows = 0
 
-    # Load each CSV directly with DuckDB's native reader (no pandas intermediary)
+    # Load each table — prefer Parquet when available, fall back to CSV
     for table_name, csv_file in CSV_FILES.items():
         csv_path = CSV_FOLDER / csv_file
+        parquet_path = csv_path.with_suffix('.parquet')
 
         logger.info(f"  Loading {table_name}...")
         start = datetime.now()
 
-        # DuckDB native CSV reader — faster and avoids pandas type issues
-        csv_path_str = str(csv_path).replace('\\', '/')
-        conn.execute(
-            f"CREATE TABLE {table_name} AS "
-            f"SELECT * FROM read_csv_auto('{csv_path_str}', header=true, "
-            f"all_varchar=false, sample_size=-1)"
-        )
+        if parquet_path.exists():
+            # Parquet: faster, type-preserving, smaller
+            pq_path_str = str(parquet_path).replace('\\', '/')
+            conn.execute(
+                f"CREATE TABLE {table_name} AS "
+                f"SELECT * FROM read_parquet('{pq_path_str}')"
+            )
+            source_fmt = "parquet"
+        else:
+            # CSV fallback
+            csv_path_str = str(csv_path).replace('\\', '/')
+            conn.execute(
+                f"CREATE TABLE {table_name} AS "
+                f"SELECT * FROM read_csv_auto('{csv_path_str}', header=true, "
+                f"all_varchar=false, sample_size=-1)"
+            )
+            source_fmt = "csv"
 
         # Get row count
         row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
         total_rows += row_count
 
         elapsed = (datetime.now() - start).total_seconds()
-        logger.info(f"    [OK] {row_count:,} rows loaded in {elapsed:.1f}s")
+        _profile_entries.append({"phase": f"load_{table_name}", "elapsed_s": round(elapsed, 3), "rows": row_count, "format": source_fmt})
+        logger.info(f"    [OK] {row_count:,} rows loaded in {elapsed:.1f}s ({source_fmt})")
 
     logger.info("")
     logger.info(f"  TOTAL: {total_rows:,} rows across {len(CSV_FILES)} tables")
@@ -166,6 +199,7 @@ def create_database():
     # Cast VARCHAR date columns to proper DATE type
     logger.info("")
     logger.info("  Casting date columns to DATE type...")
+    _cast_start = datetime.now()
     for table_name, columns in DATE_COLUMNS.items():
         for col in columns:
             try:
@@ -175,11 +209,13 @@ def create_database():
                 )
             except Exception as e:
                 logger.info(f"    [WARN] Could not cast {table_name}.{col}: {str(e)[:60]}")
+    _profile_entries.append({"phase": "cast_dates", "elapsed_s": round((datetime.now() - _cast_start).total_seconds(), 3)})
     logger.info("    [OK] Date columns cast")
 
     # Cast BIGINT boolean columns to proper BOOLEAN type
     logger.info("")
     logger.info("  Casting boolean columns to BOOLEAN type...")
+    _bool_start = datetime.now()
     bool_count = 0
     for table_name, columns in BOOL_COLUMNS.items():
         for col in columns:
@@ -191,11 +227,13 @@ def create_database():
                 bool_count += 1
             except Exception as e:
                 logger.info(f"    [WARN] Could not cast {table_name}.{col}: {str(e)[:60]}")
+    _profile_entries.append({"phase": "cast_booleans", "elapsed_s": round((datetime.now() - _bool_start).total_seconds(), 3)})
     logger.info(f"    [OK] {bool_count} boolean columns cast")
 
     # Cast DOUBLE integer columns to proper integer types
     logger.info("")
     logger.info("  Casting integer columns to correct types...")
+    _int_start = datetime.now()
     int_count = 0
     for table_name, col_types in INT_COLUMNS.items():
         for col, target_type in col_types.items():
@@ -207,11 +245,13 @@ def create_database():
                 int_count += 1
             except Exception as e:
                 logger.info(f"    [WARN] Could not cast {table_name}.{col}: {str(e)[:60]}")
+    _profile_entries.append({"phase": "cast_integers", "elapsed_s": round((datetime.now() - _int_start).total_seconds(), 3)})
     logger.info(f"    [OK] {int_count} integer columns cast")
 
     # Drop redundant columns
     logger.info("")
     logger.info("  Dropping redundant columns...")
+    _drop_start = datetime.now()
     drop_count = 0
     for table_name, columns in DROP_COLUMNS.items():
         for col in columns:
@@ -220,7 +260,33 @@ def create_database():
                 drop_count += 1
             except Exception as e:
                 logger.info(f"    [WARN] Could not drop {table_name}.{col}: {str(e)[:60]}")
+    _profile_entries.append({"phase": "drop_columns", "elapsed_s": round((datetime.now() - _drop_start).total_seconds(), 3)})
     logger.info(f"    [OK] {drop_count} redundant columns dropped")
+
+    # Create ENUM types and cast low-cardinality VARCHAR columns
+    logger.info("")
+    logger.info("  Creating ENUM types for low-cardinality columns...")
+    _enum_start = datetime.now()
+    enum_count = 0
+    created_enums = set()
+    for table_name, col_defs in ENUM_COLUMNS.items():
+        for col, values in col_defs.items():
+            # Use a shared ENUM name so identical types are reused across tables
+            enum_name = f"enum_{col.lower()}"
+            if enum_name not in created_enums:
+                values_sql = ", ".join(f"'{v}'" for v in values)
+                conn.execute(f"CREATE TYPE {enum_name} AS ENUM ({values_sql})")
+                created_enums.add(enum_name)
+            try:
+                conn.execute(
+                    f'ALTER TABLE {table_name} ALTER COLUMN "{col}" '
+                    f'SET DATA TYPE {enum_name} USING TRY_CAST("{col}" AS {enum_name})'
+                )
+                enum_count += 1
+            except Exception as e:
+                logger.info(f"    [WARN] Could not cast {table_name}.{col} to ENUM: {str(e)[:60]}")
+    _profile_entries.append({"phase": "cast_enums", "elapsed_s": round((datetime.now() - _enum_start).total_seconds(), 3)})
+    logger.info(f"    [OK] {enum_count} columns cast to ENUM ({len(created_enums)} types created)")
 
     return conn
 
@@ -262,6 +328,7 @@ def create_indexes(conn):
         ("idx_period_isoweeklabel", "dim_period", "ISOWeekLabel"),
     ]
 
+    _idx_start = datetime.now()
     for idx_name, table, column in indexes:
         try:
             conn.execute(f'CREATE INDEX {idx_name} ON {table}("{column}")')
@@ -269,18 +336,21 @@ def create_indexes(conn):
         except Exception as e:
             logger.info(f"  [WARN] Skipped: {idx_name} - {str(e)[:50]}")
 
+    _profile_entries.append({"phase": "create_indexes", "elapsed_s": round((datetime.now() - _idx_start).total_seconds(), 3)})
     logger.info("")
     logger.info(f"  Indexes created for faster queries")
 
     # Materialized order lookup for item-to-subscription joins
     logger.info("")
     logger.info("  Creating order_lookup table...")
+    _ol_start = datetime.now()
     conn.execute("""
         CREATE TABLE order_lookup AS
         SELECT DISTINCT OrderID_Std, IsSubscriptionService FROM sales
     """)
     conn.execute("CREATE INDEX idx_order_lookup_id ON order_lookup(OrderID_Std)")
     ol_count = conn.execute("SELECT COUNT(*) FROM order_lookup").fetchone()[0]
+    _profile_entries.append({"phase": "order_lookup", "elapsed_s": round((datetime.now() - _ol_start).total_seconds(), 3), "rows": ol_count})
     logger.info(f"  [OK] order_lookup: {ol_count:,} distinct orders")
 
 
@@ -412,6 +482,18 @@ def main():
     elapsed = (datetime.now() - start_time).total_seconds()
     target = DB_PATH if DB_PATH.exists() else tmp_path
     db_size_mb = target.stat().st_size / (1024 * 1024)
+
+    # Write profiling results
+    profile = {
+        "timestamp": datetime.now().isoformat(),
+        "total_elapsed_s": round(elapsed, 3),
+        "db_size_mb": round(db_size_mb, 1),
+        "phases": _profile_entries,
+    }
+    LOGS_PATH.mkdir(parents=True, exist_ok=True)
+    profile_path = LOGS_PATH / f"duckdb_profile_{datetime.now():%Y-%m-%d_%H%M%S}.json"
+    profile_path.write_text(json.dumps(profile, indent=2))
+    logger.info(f"\n  [PROFILE] Written to {profile_path.name}")
 
     logger.info("\n" + "=" * 70)
     logger.info("ETL COMPLETE!")

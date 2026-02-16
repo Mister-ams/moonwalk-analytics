@@ -1,53 +1,38 @@
 """
-All_Sales Transformation Script - OPTIMIZED VERSION
+All_Sales Transformation Script (Polars)
 Includes: Date Fix + Subscription Store Fix
-
-OPTIMIZATIONS:
-- ALL .apply() calls replaced with vectorized pandas/numpy operations
-- Subscription flag via merge instead of row-by-row loop
-- Time metrics via column arithmetic instead of row-by-row
-- Shared helpers (no local duplicates)
-- Callable run() for single-process master script
-- CSV loaded once, passed via shared_data
 """
 
-import pandas as pd
-import numpy as np
+import polars as pl
 import warnings
 import os
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, Union
 warnings.filterwarnings('ignore')
 
 from helpers import (
-    find_cleancloud_file, vectorized_to_date, vectorized_store_std,
-    vectorized_customer_id_std, vectorized_order_id_std,
-    vectorized_payment_type_std, vectorized_route_category,
-    vectorized_months_since_cohort, vectorized_subscription_flag,
-    vectorized_name_standardize, format_dates_for_csv,
-    DOWNLOADS_PATH,
+    find_cleancloud_file, polars_to_date, polars_store_std,
+    polars_customer_id_std, polars_order_id_std,
+    polars_payment_type_std, polars_route_category,
+    polars_months_since_cohort, polars_subscription_flag,
+    polars_name_standardize, polars_format_dates_for_csv,
 )
-from config import LOCAL_STAGING_PATH
+from config import LOCAL_STAGING_PATH, SUBSCRIPTION_VALIDITY_DAYS
 
 from logger_config import setup_logger
 logger = setup_logger(__name__)
-
-from config import SUBSCRIPTION_VALIDITY_DAYS
 
 
 # =====================================================================
 # MAIN TRANSFORMATION
 # =====================================================================
 
-def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataFrame, str]:
+def run(shared_data: Optional[Dict[str, Union[pl.DataFrame]]] = None) -> Tuple[pl.DataFrame, str]:
     """
     Run All_Sales transformation.
 
     Args:
-        shared_data: dict with pre-loaded DataFrames:
-            - 'customers_csv': CC customers DataFrame
-            - 'orders_csv': CC orders DataFrame
-            - 'invoices_csv': Invoices DataFrame
-            - 'legacy_csv': Legacy orders DataFrame
+        shared_data: dict with pre-loaded DataFrames (Polars):
+            - 'customers_csv', 'orders_csv', 'invoices_csv', 'legacy_csv'
             - 'all_customers_df': Processed All_Customers DataFrame
             If None, loads from disk.
 
@@ -55,7 +40,7 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
         (df_final, output_path) tuple
     """
     logger.info("=" * 70)
-    logger.info("ALL_SALES TRANSFORMATION - OPTIMIZED")
+    logger.info("ALL_SALES TRANSFORMATION - POLARS")
     logger.info("=" * 70)
     logger.info("")
     output_path = os.path.join(LOCAL_STAGING_PATH, "All_Sales_Python.csv")
@@ -65,46 +50,60 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     # =====================================================================
     logger.info("Phase 1: Loading dependencies...")
 
-    # CC Customers (for business account list + name lookup)
+    # CC Customers
     if shared_data and 'customers_csv' in shared_data:
         df_customers = shared_data['customers_csv']
     else:
-        df_customers = pd.read_csv(find_cleancloud_file('customer'), encoding='utf-8')
+        df_customers = pl.read_csv(find_cleancloud_file('customer'), infer_schema_length=10000)
 
-    # Business Account list (vectorized)
-    biz_mask = df_customers['Business ID'].notna()
-    biz_ids = df_customers.loc[biz_mask, 'Customer ID'].astype(str).str.strip()
-    biz_digits = biz_ids.str.replace(r'\D', '', regex=True)
-    business_account_set = set('CC-' + biz_digits[biz_digits != ''].str.zfill(4))
+    # Business Account set
+    biz_mask = (pl.col("Business ID").cast(pl.Utf8).fill_null("") != "")
+    biz_ids = (
+        df_customers.filter(biz_mask)
+        .select(pl.col("Customer ID").cast(pl.Utf8).str.replace_all(r"\D", ""))
+        .to_series()
+    )
+    business_account_set = set(f"CC-{d.zfill(4)}" for d in biz_ids.to_list() if d)
 
-    logger.info(f"  [OK] Loaded {len(df_customers):,} CC customers, {len(business_account_set)} business accounts")
+    logger.info(f"  [OK] Loaded {df_customers.height:,} CC customers, {len(business_account_set)} business accounts")
 
-    # Customer name lookup (vectorized instead of iterrows)
-    name_df = df_customers[df_customers['Name'].notna()].copy()
-    name_df['name_std'] = vectorized_name_standardize(name_df['Name'])
-    cid_digits = name_df['Customer ID'].astype(str).str.replace(r'\D', '', regex=True)
-    name_df['cust_std'] = 'CC-' + cid_digits.str.zfill(4)
-    name_df = name_df[name_df['name_std'] != '']
-    # Keep first occurrence for each standardized name
-    name_df = name_df.drop_duplicates(subset='name_std', keep='first')
-    customer_name_lookup = dict(zip(name_df['name_std'], name_df['cust_std']))
+    # Customer name lookup
+    name_df = df_customers.filter(
+        pl.col("Name").is_not_null() & (pl.col("Name").cast(pl.Utf8) != "")
+    ).with_columns([
+        polars_name_standardize(pl.col("Name")).alias("name_std"),
+        (pl.lit("CC-") + pl.col("Customer ID").cast(pl.Utf8).str.replace_all(r"\D", "").str.zfill(4))
+            .alias("cust_std"),
+    ]).filter(pl.col("name_std") != "")
+    name_df = name_df.unique(subset="name_std", keep="first")
+    customer_name_lookup = dict(zip(
+        name_df["name_std"].to_list(),
+        name_df["cust_std"].to_list()
+    ))
 
     # All_Customers (for CohortMonth + Route)
     if shared_data and 'all_customers_df' in shared_data:
-        df_all_customers = shared_data['all_customers_df'].copy()
+        df_all_customers = shared_data['all_customers_df'].clone()
     else:
-        df_all_customers = pd.read_csv(
-            os.path.join(LOCAL_STAGING_PATH, "All_Customers_Python.csv"), encoding='utf-8'
+        df_all_customers = pl.read_csv(
+            os.path.join(LOCAL_STAGING_PATH, "All_Customers_Python.csv"),
+            infer_schema_length=10000
         )
 
-    df_all_customers['CohortMonth'] = vectorized_to_date(df_all_customers['CohortMonth'])
-    customer_cohort = dict(zip(df_all_customers['CustomerID_Std'], df_all_customers['CohortMonth']))
+    # Parse CohortMonth if string
+    if df_all_customers["CohortMonth"].dtype == pl.Utf8:
+        df_all_customers = polars_to_date(df_all_customers, "CohortMonth")
+
+    customer_cohort = dict(zip(
+        df_all_customers["CustomerID_Std"].to_list(),
+        df_all_customers["CohortMonth"].to_list()
+    ))
     customer_route = dict(zip(
-        df_all_customers['CustomerID_Std'],
-        pd.to_numeric(df_all_customers['Route #'], errors='coerce').fillna(0)
+        df_all_customers["CustomerID_Std"].to_list(),
+        df_all_customers["Route #"].cast(pl.Float64, strict=False).fill_null(0).to_list()
     ))
 
-    logger.info(f"  [OK] Loaded {len(df_all_customers):,} total customers for lookup")
+    logger.info(f"  [OK] Loaded {df_all_customers.height:,} total customers for lookup")
 
     # =====================================================================
     # PHASE 2: LOAD SUBSCRIPTION PERIODS
@@ -112,33 +111,40 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     logger.info("\nPhase 2: Loading subscription periods...")
 
     if shared_data and 'invoices_csv' in shared_data:
-        df_invoices_raw = shared_data['invoices_csv'].copy()
+        df_invoices_raw = shared_data['invoices_csv'].clone()
     else:
-        df_invoices_raw = pd.read_csv(find_cleancloud_file('invoice'), encoding='utf-8')
+        df_invoices_raw = pl.read_csv(find_cleancloud_file('invoice'), infer_schema_length=10000)
 
-    df_subs = df_invoices_raw[
-        df_invoices_raw['Reference'].astype(str).str.upper().str.startswith('SUBSCRIPTION', na=False)
-    ].copy()
+    df_subs = df_invoices_raw.filter(
+        pl.col("Reference").cast(pl.Utf8).str.to_uppercase().str.starts_with("SUBSCRIPTION")
+    )
 
-    df_subs['Payment_Date'] = vectorized_to_date(df_subs['Payment Date'])
-    df_subs = df_subs[df_subs['Payment_Date'].notna()].copy()
+    df_subs = polars_to_date(df_subs, "Payment Date", alias="Payment_Date")
+    df_subs = df_subs.filter(pl.col("Payment_Date").is_not_null())
 
-    df_subs['CustomerName_Std'] = vectorized_name_standardize(df_subs['Customer'])
-    df_subs['CustomerID_Std'] = df_subs['CustomerName_Std'].map(customer_name_lookup)
+    df_subs = df_subs.with_columns(
+        polars_name_standardize(pl.col("Customer")).alias("CustomerName_Std")
+    )
+    # Map name -> CustomerID_Std
+    name_series = df_subs["CustomerName_Std"].to_list()
+    cid_mapped = [customer_name_lookup.get(n) for n in name_series]
+    df_subs = df_subs.with_columns(pl.Series("CustomerID_Std", cid_mapped))
 
-    df_subs['ValidFrom'] = df_subs['Payment_Date']
-    df_subs['ValidUntil'] = df_subs['Payment_Date'] + pd.Timedelta(days=SUBSCRIPTION_VALIDITY_DAYS)
+    df_subs = df_subs.with_columns([
+        pl.col("Payment_Date").alias("ValidFrom"),
+        (pl.col("Payment_Date") + pl.duration(days=SUBSCRIPTION_VALIDITY_DAYS)).alias("ValidUntil"),
+    ])
 
-    # Build subscription dict for vectorized lookup
-    sub_valid = df_subs[['CustomerID_Std', 'ValidFrom', 'ValidUntil']].dropna()
+    # Build subscription dict
+    sub_valid = df_subs.select(["CustomerID_Std", "ValidFrom", "ValidUntil"]).drop_nulls()
     subscription_dict = {}
-    for cid, grp in sub_valid.groupby('CustomerID_Std'):
-        subscription_dict[cid] = [
-            {'ValidFrom': row['ValidFrom'], 'ValidUntil': row['ValidUntil']}
-            for _, row in grp.iterrows()
-        ]
+    for row in sub_valid.iter_rows(named=True):
+        cid = row["CustomerID_Std"]
+        if cid not in subscription_dict:
+            subscription_dict[cid] = []
+        subscription_dict[cid].append({"ValidFrom": row["ValidFrom"], "ValidUntil": row["ValidUntil"]})
 
-    logger.info(f"  [OK] {len(df_subs):,} subscription payments, {len(subscription_dict)} customers with subs")
+    logger.info(f"  [OK] {df_subs.height:,} subscription payments, {len(subscription_dict)} customers with subs")
 
     # =====================================================================
     # PHASE 3: LOAD SOURCE DATA
@@ -154,64 +160,74 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
 
     # 3A. Legacy Orders
     if shared_data and 'legacy_csv' in shared_data:
-        df_legacy = shared_data['legacy_csv']  # No copy needed - immediately reassigned below
+        df_legacy = shared_data['legacy_csv'].clone()
     else:
-        df_legacy = pd.read_csv(os.path.join(LOCAL_STAGING_PATH, "RePos_Archive.csv"),
-                                encoding='utf-8', low_memory=False)
+        df_legacy = pl.read_csv(os.path.join(LOCAL_STAGING_PATH, "RePos_Archive.csv"), infer_schema_length=10000)
 
-    df_legacy = df_legacy[[c for c in order_columns if c in df_legacy.columns]].copy()
-    df_legacy['Source'] = 'Legacy'
-    df_legacy['Transaction_Type'] = 'Order'
-    df_legacy['Customer_Name'] = None
-    logger.info(f"  [OK] Loaded {len(df_legacy):,} legacy orders")
+    existing_legacy_cols = [c for c in order_columns if c in df_legacy.columns]
+    df_legacy = df_legacy.select(existing_legacy_cols)
+    df_legacy = df_legacy.with_columns([
+        pl.lit("Legacy").alias("Source"),
+        pl.lit("Order").alias("Transaction_Type"),
+        pl.lit(None, dtype=pl.Utf8).alias("Customer_Name"),
+    ])
+    logger.info(f"  [OK] Loaded {df_legacy.height:,} legacy orders")
 
     # 3B. CC Orders
     if shared_data and 'orders_csv' in shared_data:
-        df_cc_orders = shared_data['orders_csv']  # No copy needed - immediately reassigned below
+        df_cc_orders = shared_data['orders_csv'].clone()
     else:
-        df_cc_orders = pd.read_csv(find_cleancloud_file('orders'), encoding='utf-8', low_memory=False)
+        df_cc_orders = pl.read_csv(find_cleancloud_file('orders'), infer_schema_length=10000)
 
-    df_cc_orders = df_cc_orders[[c for c in order_columns if c in df_cc_orders.columns]].copy()
-    df_cc_orders['Source'] = 'CC_2025'
-    df_cc_orders['Transaction_Type'] = 'Order'
-    df_cc_orders['Customer_Name'] = None
-    logger.info(f"  [OK] Loaded {len(df_cc_orders):,} CC orders")
+    existing_cc_cols = [c for c in order_columns if c in df_cc_orders.columns]
+    df_cc_orders = df_cc_orders.select(existing_cc_cols)
+    df_cc_orders = df_cc_orders.with_columns([
+        pl.lit("CC_2025").alias("Source"),
+        pl.lit("Order").alias("Transaction_Type"),
+        pl.lit(None, dtype=pl.Utf8).alias("Customer_Name"),
+    ])
+    logger.info(f"  [OK] Loaded {df_cc_orders.height:,} CC orders")
 
     # 3C. Invoices
-    df_inv = df_invoices_raw  # No copy needed - will be filtered and copied below
-    df_inv['Reference_Upper'] = df_inv['Reference'].astype(str).str.upper()
-    is_subscription = df_inv['Reference_Upper'].str.contains('SUBSCRIPTION', na=False)
-
-    df_inv['Payment_Date_Parsed'] = vectorized_to_date(df_inv['Payment Date'])
-    df_inv = df_inv[df_inv['Payment_Date_Parsed'].notna() | is_subscription].copy()
-
-    df_inv['Total'] = np.where(
-        df_inv['Reference_Upper'].str.startswith('SUBSCRIPTION', na=False),
-        pd.to_numeric(df_inv['Amount'], errors='coerce').fillna(0),
-        0
+    df_inv = df_invoices_raw.clone()
+    df_inv = df_inv.with_columns(
+        pl.col("Reference").cast(pl.Utf8).str.to_uppercase().alias("Reference_Upper")
     )
-    df_inv['Collections_Inv'] = pd.to_numeric(df_inv['Amount'], errors='coerce').fillna(0)
-    df_inv['Customer_Name'] = df_inv['Customer']
-    df_inv['Transaction_Type'] = np.where(
-        df_inv['Reference_Upper'].str.startswith('SUBSCRIPTION', na=False),
-        'Subscription', 'Invoice Payment'
-    )
+    is_subscription = pl.col("Reference_Upper").str.starts_with("SUBSCRIPTION")
 
-    # Placeholders
-    df_inv['Order ID'] = None
-    df_inv['Customer ID'] = None
-    df_inv['Placed'] = df_inv['Payment Date']
-    df_inv['Ready By'] = None
-    df_inv['Cleaned'] = df_inv['Payment Date']
-    df_inv['Collected'] = df_inv['Payment Date']
-    df_inv['Pickup Date'] = None
-    df_inv['Paid'] = 1
-    df_inv['Pieces'] = 0
-    df_inv['Delivery'] = 0
-    df_inv['Source'] = 'CC_2025'
+    df_inv = polars_to_date(df_inv, "Payment Date", alias="Payment_Date_Parsed")
+    df_inv = df_inv.filter(pl.col("Payment_Date_Parsed").is_not_null() | is_subscription)
 
-    if 'Payment Method' in df_inv.columns:
-        df_inv = df_inv.rename(columns={'Payment Method': 'Payment Type'})
+    df_inv = df_inv.with_columns([
+        pl.when(is_subscription)
+        .then(pl.col("Amount").cast(pl.Float64, strict=False).fill_null(0))
+        .otherwise(pl.lit(0.0))
+        .alias("Total"),
+
+        pl.col("Amount").cast(pl.Float64, strict=False).fill_null(0).alias("Collections_Inv"),
+        pl.col("Customer").alias("Customer_Name"),
+
+        pl.when(is_subscription)
+        .then(pl.lit("Subscription"))
+        .otherwise(pl.lit("Invoice Payment"))
+        .alias("Transaction_Type"),
+
+        pl.lit(None, dtype=pl.Utf8).alias("Order ID"),
+        pl.lit(None, dtype=pl.Utf8).alias("Customer ID"),
+        pl.col("Payment Date").alias("Placed"),
+        pl.lit(None, dtype=pl.Utf8).alias("Ready By"),
+        pl.col("Payment Date").alias("Cleaned"),
+        pl.col("Payment Date").alias("Collected"),
+        pl.lit(None, dtype=pl.Utf8).alias("Pickup Date"),
+        pl.lit(1).alias("Paid"),
+        pl.lit(0).alias("Pieces"),
+        pl.lit(0).alias("Delivery"),
+        pl.lit("CC_2025").alias("Source"),
+    ])
+
+    # Rename Payment Method -> Payment Type if exists
+    if "Payment Method" in df_inv.columns:
+        df_inv = df_inv.rename({"Payment Method": "Payment Type"})
 
     inv_keep = [
         'Order ID', 'Customer ID', 'Placed', 'Total', 'Collections_Inv',
@@ -220,26 +236,19 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
         'Payment Date', 'Payment Type', 'Paid', 'Pieces', 'Delivery',
         'Source', 'Transaction_Type', 'Customer_Name'
     ]
-    df_inv = df_inv[[c for c in inv_keep if c in df_inv.columns]].copy()
-    logger.info(f"  [OK] Loaded {len(df_inv):,} invoice rows")
+    existing_inv_cols = [c for c in inv_keep if c in df_inv.columns]
+    df_inv = df_inv.select(existing_inv_cols)
+    logger.info(f"  [OK] Loaded {df_inv.height:,} invoice rows")
 
     # =====================================================================
     # PHASE 4: COMBINE
     # =====================================================================
     logger.info("\nPhase 4: Combining sources...")
 
-    all_cols = set(df_legacy.columns) | set(df_cc_orders.columns) | set(df_inv.columns)
-    for frame in [df_legacy, df_cc_orders, df_inv]:
-        for col in all_cols - set(frame.columns):
-            frame[col] = None
+    df = pl.concat([df_legacy, df_cc_orders, df_inv], how="diagonal_relaxed")
+    logger.info(f"  [OK] Combined: {df.height:,} total rows")
 
-    df = pd.concat([df_legacy, df_cc_orders, df_inv], ignore_index=True)
-    logger.info(f"  [OK] Combined: {len(df):,} total rows")
-
-    # Cleanup large intermediates to free memory
     del df_legacy, df_cc_orders, df_inv
-    import gc
-    gc.collect()
 
     # =====================================================================
     # PHASE 5: VECTORIZED STANDARDIZATION
@@ -247,194 +256,239 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     logger.info("\nPhase 5: Vectorized standardization...")
 
     # Paid
-    df['Paid'] = pd.to_numeric(df['Paid'], errors='coerce').fillna(0).astype(int)
+    df = df.with_columns(
+        pl.col("Paid").cast(pl.Float64, strict=False).fill_null(0).cast(pl.Int32).alias("Paid")
+    )
 
-    # Payment Type (vectorized)
-    df['Payment_Type_Std'] = vectorized_payment_type_std(df['Payment Type'])
+    # Payment Type
+    df = df.with_columns(polars_payment_type_std("Payment Type").alias("Payment_Type_Std"))
 
-    # Date columns (vectorized - replaces 6 separate .apply(fx_to_date) calls)
+    # Date columns
     date_cols = ['Placed', 'Ready By', 'Cleaned', 'Collected', 'Pickup Date', 'Payment Date']
     for col in date_cols:
         if col in df.columns:
-            df[col] = vectorized_to_date(df[col])
+            df = polars_to_date(df, col)
 
-    df['Placed_Date'] = df['Placed']
+    df = df.with_columns(pl.col("Placed").alias("Placed_Date"))
 
-    # Earned_Date (vectorized - replaces .apply lambda)
-    # Use np.where to avoid dtype mismatch between CC (datetime64[us]) and Legacy (datetime64[ns])
-    df['Earned_Date'] = np.where(
-        df['Source'] != 'CC_2025',
-        np.where(df['Cleaned'].notna(), df['Cleaned'], df['Placed_Date']),
-        df['Cleaned']
+    # Earned_Date
+    df = df.with_columns(
+        pl.when(pl.col("Source") != "CC_2025")
+        .then(
+            pl.when(pl.col("Cleaned").is_not_null())
+            .then(pl.col("Cleaned"))
+            .otherwise(pl.col("Placed_Date"))
+        )
+        .otherwise(pl.col("Cleaned"))
+        .alias("Earned_Date")
     )
-    df['Earned_Date'] = pd.to_datetime(df['Earned_Date'])
 
-    # OrderCohortMonth (vectorized)
-    df['OrderCohortMonth'] = df['Earned_Date'].dt.to_period('M').dt.to_timestamp()
-    df.loc[df['Earned_Date'].isna(), 'OrderCohortMonth'] = pd.NaT
+    # OrderCohortMonth
+    df = df.with_columns(
+        pl.col("Earned_Date").dt.truncate("1mo").alias("OrderCohortMonth")
+    )
 
-    df['Total_Num'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
-    df['Pieces'] = pd.to_numeric(df['Pieces'], errors='coerce').fillna(0).astype(int)
-    df['Delivery'] = pd.to_numeric(df['Delivery'], errors='coerce').fillna(0).astype(int)
+    df = df.with_columns([
+        pl.col("Total").cast(pl.Float64, strict=False).fill_null(0).alias("Total_Num"),
+        pl.col("Pieces").cast(pl.Float64, strict=False).fill_null(0).cast(pl.Int32).alias("Pieces"),
+        pl.col("Delivery").cast(pl.Float64, strict=False).fill_null(0).cast(pl.Int32).alias("Delivery"),
+    ])
 
     logger.info(f"  [OK] Dates, payments, totals standardized")
 
     # =====================================================================
-    # PHASE 6: COLLECTIONS (vectorized)
+    # PHASE 6: COLLECTIONS
     # =====================================================================
     logger.info("\nPhase 6: Calculating collections...")
 
-    has_inv_coll = df['Collections_Inv'].notna() if 'Collections_Inv' in df.columns else pd.Series(False, index=df.index)
-    df['Collections'] = np.where(
-        has_inv_coll, df.get('Collections_Inv', 0),
-        np.where(df['Paid'] == 0, 0,
-            np.where(df['Payment_Type_Std'] == 'Receivable', 0, df['Total_Num'])
-        )
+    has_inv_coll = pl.col("Collections_Inv").is_not_null() if "Collections_Inv" in df.columns else pl.lit(False)
+    df = df.with_columns(
+        pl.when(has_inv_coll)
+        .then(pl.col("Collections_Inv").cast(pl.Float64, strict=False).fill_null(0))
+        .when(pl.col("Paid") == 0)
+        .then(pl.lit(0.0))
+        .when(pl.col("Payment_Type_Std") == "Receivable")
+        .then(pl.lit(0.0))
+        .otherwise(pl.col("Total_Num"))
+        .alias("Collections")
     )
-    df = df.drop(columns=['Collections_Inv'], errors='ignore')
+    if "Collections_Inv" in df.columns:
+        df = df.drop("Collections_Inv")
 
     # =====================================================================
-    # PHASE 7: STORE & ID STANDARDIZATION (vectorized)
+    # PHASE 7: STORE & ID STANDARDIZATION
     # =====================================================================
     logger.info("\nPhase 7: Standardizing stores and IDs...")
 
-    df['Store_Std'] = vectorized_store_std(
-        df.get('Store ID', pd.Series(dtype='object')),
-        df.get('Store Name', pd.Series(dtype='object')),
-        df['Source']
-    )
+    store_id_col = "Store ID" if "Store ID" in df.columns else None
+    store_name_col = "Store Name" if "Store Name" in df.columns else None
 
-    initial_count = len(df)
-    df = df[df['Store_Std'].notna()].copy()
-    logger.info(f"  [OK] After store filter: {len(df):,} rows ({initial_count - len(df):,} removed)")
-    df = df.drop(columns=['Store ID', 'Store Name'], errors='ignore')
+    if store_id_col:
+        df = df.with_columns(
+            polars_store_std(store_id_col, store_name_col, "Source").alias("Store_Std")
+        )
+    else:
+        # No store ID column — fallback for legacy
+        df = df.with_columns(
+            pl.when(pl.col("Source") == "Legacy").then(pl.lit("Moon Walk"))
+            .otherwise(pl.lit(None, dtype=pl.Utf8))
+            .alias("Store_Std")
+        )
 
-    # CustomerID_Std (vectorized)
-    df['CustomerID_Std'] = vectorized_customer_id_std(
-        df.get('Customer ID', pd.Series(dtype='object', index=df.index)),
-        df['Source']
-    )
+    initial_count = df.height
+    df = df.filter(pl.col("Store_Std").is_not_null())
+    logger.info(f"  [OK] After store filter: {df.height:,} rows ({initial_count - df.height:,} removed)")
 
-    # OrderID_Std (vectorized)
-    df = df.reset_index(drop=True)
-    df['RowIndex'] = df.index + 1
+    drop_cols = [c for c in ["Store ID", "Store Name"] if c in df.columns]
+    if drop_cols:
+        df = df.drop(drop_cols)
 
-    df['OrderID_Std'] = vectorized_order_id_std(
-        df.get('Order ID', pd.Series(dtype='object', index=df.index)),
-        df['Store_Std'],
-        df['Source'],
-        df['Transaction_Type'],
-        df['RowIndex']
-    )
-    df = df.drop(columns=['RowIndex'])
+    # CustomerID_Std
+    cid_col = "Customer ID" if "Customer ID" in df.columns else None
+    if cid_col:
+        df = df.with_columns(polars_customer_id_std(cid_col, "Source").alias("CustomerID_Std"))
+    else:
+        df = df.with_columns(pl.lit(None, dtype=pl.Utf8).alias("CustomerID_Std"))
+
+    # OrderID_Std
+    df = df.with_columns(pl.lit("Order").alias("_tt_fallback"))
+    if "Transaction_Type" not in df.columns:
+        df = df.with_columns(pl.col("_tt_fallback").alias("Transaction_Type"))
+
+    df = polars_order_id_std(df, "Order ID", "Store_Std", "Source", "Transaction_Type")
+    df = df.drop("_tt_fallback")
 
     logger.info(f"  [OK] Store, Customer, Order IDs standardized")
 
     # =====================================================================
-    # PHASE 8: FIX CUSTOMER IDS FOR SUBSCRIPTIONS/INVOICES (vectorized)
+    # PHASE 8: FIX CUSTOMER IDS FOR SUBSCRIPTIONS/INVOICES
     # =====================================================================
     logger.info("\nPhase 8: Fixing Customer IDs for subscriptions/invoices...")
 
-    is_sub_or_inv = df['Transaction_Type'].isin(['Subscription', 'Invoice Payment'])
+    is_sub_or_inv = pl.col("Transaction_Type").is_in(["Subscription", "Invoice Payment"])
 
-    # Vectorized name standardization + lookup
-    df['_name_std'] = None
-    if is_sub_or_inv.any():
-        df.loc[is_sub_or_inv, '_name_std'] = vectorized_name_standardize(
-            df.loc[is_sub_or_inv, 'Customer_Name']
-        ).replace("", None)
+    # Build name_std column for subs/invoices
+    df = df.with_columns(
+        pl.when(is_sub_or_inv & pl.col("Customer_Name").is_not_null())
+        .then(polars_name_standardize(pl.col("Customer_Name")))
+        .otherwise(pl.lit(None, dtype=pl.Utf8))
+        .alias("_name_std")
+    )
 
-    df['_cid_lookup'] = df['_name_std'].map(customer_name_lookup)
+    # Map name -> CustomerID_Std
+    name_std_list = df["_name_std"].to_list()
+    cid_lookup = [customer_name_lookup.get(n) if n else None for n in name_std_list]
+    df = df.with_columns(pl.Series("_cid_lookup", cid_lookup))
 
     # Overwrite CustomerID_Std for subs/invoices
-    df.loc[is_sub_or_inv, 'CustomerID_Std'] = df.loc[is_sub_or_inv, '_cid_lookup']
-    df = df.drop(columns=['_name_std', '_cid_lookup'])
+    df = df.with_columns(
+        pl.when(is_sub_or_inv & pl.col("_cid_lookup").is_not_null())
+        .then(pl.col("_cid_lookup"))
+        .otherwise(pl.col("CustomerID_Std"))
+        .alias("CustomerID_Std")
+    )
+    df = df.drop(["_name_std", "_cid_lookup"])
 
     # =====================================================================
     # PHASE 9: FILTERING
     # =====================================================================
     logger.info("\nPhase 9: Filtering...")
 
-    initial_count = len(df)
+    initial_count = df.height
 
-    # Is_Earned flag: 1 = revenue counts, 0 = pending (uncleaned CC orders)
-    df['Is_Earned'] = np.where(df['Earned_Date'].notna(), 1, 0).astype(int)
-    uncleaned = (df['Is_Earned'] == 0).sum()
+    # Is_Earned flag
+    df = df.with_columns(
+        pl.when(pl.col("Earned_Date").is_not_null()).then(pl.lit(1)).otherwise(pl.lit(0))
+        .cast(pl.Int32).alias("Is_Earned")
+    )
+    uncleaned = df.filter(pl.col("Is_Earned") == 0).height
     logger.info(f"  [INFO] {uncleaned:,} uncleaned orders (Is_Earned=0, preserved in output)")
 
-    # Only filter on CustomerID and OrderID (never remove for missing Earned_Date)
-    df = df[
-        df['CustomerID_Std'].notna() &
-        df['OrderID_Std'].notna()
-    ].copy()
-    logger.info(f"  [OK] After null ID filter: {len(df):,} rows ({initial_count - len(df):,} removed)")
+    # Filter null IDs
+    df = df.filter(pl.col("CustomerID_Std").is_not_null() & pl.col("OrderID_Std").is_not_null())
+    logger.info(f"  [OK] After null ID filter: {df.height:,} rows ({initial_count - df.height:,} removed)")
 
-    df = df[~df['CustomerID_Std'].isin(business_account_set)].copy()
-    logger.info(f"  [OK] After B2B filter: {len(df):,} rows")
+    df = df.filter(~pl.col("CustomerID_Std").is_in(list(business_account_set)))
+    logger.info(f"  [OK] After B2B filter: {df.height:,} rows")
 
-    df = df.drop(columns=['Order ID', 'Customer ID', 'Total', 'Customer_Name'], errors='ignore')
+    drop_raw = [c for c in ["Order ID", "Customer ID", "Total", "Customer_Name"] if c in df.columns]
+    if drop_raw:
+        df = df.drop(drop_raw)
 
     # =====================================================================
-    # PHASE 10: MERGE CUSTOMER DATA (vectorized map)
+    # PHASE 10: MERGE CUSTOMER DATA
     # =====================================================================
     logger.info("\nPhase 10: Merging customer data...")
 
-    df['CohortMonth'] = df['CustomerID_Std'].map(customer_cohort)
-    df['Route #'] = df['CustomerID_Std'].map(customer_route).fillna(0)
-    df['Route_Category'] = vectorized_route_category(df['Route #'])
+    cid_list = df["CustomerID_Std"].to_list()
+    cohort_vals = [customer_cohort.get(c) for c in cid_list]
+    route_vals = [customer_route.get(c, 0.0) for c in cid_list]
+
+    df = df.with_columns([
+        pl.Series("CohortMonth", cohort_vals).cast(pl.Datetime("us"), strict=False),
+        pl.Series("Route #", route_vals).cast(pl.Float64),
+    ])
+
+    df = df.with_columns(polars_route_category("Route #").alias("Route_Category"))
 
     # =====================================================================
-    # PHASE 11: FLAGS (vectorized)
+    # PHASE 11: FLAGS
     # =====================================================================
     logger.info("\nPhase 11: Adding flags...")
 
-    df['HasDelivery'] = (df['Delivery'] == 1).astype(int)
-    df['HasPickup'] = df['Pickup Date'].notna().astype(int)
+    df = df.with_columns([
+        (pl.col("Delivery") == 1).cast(pl.Int32).alias("HasDelivery"),
+        pl.col("Pickup Date").is_not_null().cast(pl.Int32).alias("HasPickup"),
+        pl.when(pl.col("Delivery") == 1)
+        .then(pl.col("Collected"))
+        .otherwise(pl.lit(None, dtype=pl.Datetime("us")))
+        .alias("Delivery_Date"),
+    ])
 
-    # Delivery_Date (vectorized - replaces .apply lambda)
-    df['Delivery_Date'] = np.where(df['Delivery'] == 1, df['Collected'], pd.NaT)
-    df['Delivery_Date'] = pd.to_datetime(df['Delivery_Date'])
-
-    # MonthsSinceCohort (vectorized)
-    df['MonthsSinceCohort'] = vectorized_months_since_cohort(df['OrderCohortMonth'], df['CohortMonth'])
+    # MonthsSinceCohort
+    df = df.with_columns(
+        polars_months_since_cohort("OrderCohortMonth", "CohortMonth").alias("MonthsSinceCohort")
+    )
 
     # =====================================================================
-    # PHASE 12: SUBSCRIPTION FLAG (vectorized merge - replaces .apply loop)
+    # PHASE 12: SUBSCRIPTION FLAG
     # =====================================================================
     logger.info("\nPhase 12: Calculating subscription service flag...")
 
-    df['IsSubscriptionService'] = vectorized_subscription_flag(df, subscription_dict)
+    df = polars_subscription_flag(df, subscription_dict)
 
-    subscription_orders = (df['IsSubscriptionService'] == 1).sum()
+    subscription_orders = df.filter(pl.col("IsSubscriptionService") == 1).height
     logger.info(f"  [OK] {subscription_orders:,} orders during active subscription")
 
     # =====================================================================
-    # PHASE 13: TIME METRICS (vectorized column arithmetic)
+    # PHASE 13: TIME METRICS
     # =====================================================================
     logger.info("\nPhase 13: Calculating time metrics...")
 
-    is_order = df['Transaction_Type'] == 'Order'
+    is_order = pl.col("Transaction_Type") == "Order"
 
-    # Processing_Days = Cleaned - Placed (orders only)
-    proc = (df['Cleaned'] - df['Placed_Date']).dt.days.astype('float64')
-    df['Processing_Days'] = np.where(
-        is_order & df['Placed_Date'].notna() & df['Cleaned'].notna(),
-        proc, np.nan
-    )
+    df = df.with_columns([
+        pl.when(
+            is_order & pl.col("Placed_Date").is_not_null() & pl.col("Cleaned").is_not_null()
+        )
+        .then((pl.col("Cleaned") - pl.col("Placed_Date")).dt.total_days().cast(pl.Float64))
+        .otherwise(pl.lit(None, dtype=pl.Float64))
+        .alias("Processing_Days"),
 
-    # TimeInStore_Days = Collected - Cleaned (orders only)
-    tis = (df['Collected'] - df['Cleaned']).dt.days.astype('float64')
-    df['TimeInStore_Days'] = np.where(
-        is_order & df['Cleaned'].notna() & df['Collected'].notna(),
-        tis, np.nan
-    )
+        pl.when(
+            is_order & pl.col("Cleaned").is_not_null() & pl.col("Collected").is_not_null()
+        )
+        .then((pl.col("Collected") - pl.col("Cleaned")).dt.total_days().cast(pl.Float64))
+        .otherwise(pl.lit(None, dtype=pl.Float64))
+        .alias("TimeInStore_Days"),
 
-    # DaysToPayment = Payment Date - Placed
-    dtp = (df['Payment Date'] - df['Placed_Date']).dt.days.astype('float64')
-    df['DaysToPayment'] = np.where(
-        df['Placed_Date'].notna() & df['Payment Date'].notna(),
-        dtp, np.nan
-    )
+        pl.when(
+            pl.col("Placed_Date").is_not_null() & pl.col("Payment Date").is_not_null()
+        )
+        .then((pl.col("Payment Date") - pl.col("Placed_Date")).dt.total_days().cast(pl.Float64))
+        .otherwise(pl.lit(None, dtype=pl.Float64))
+        .alias("DaysToPayment"),
+    ])
 
     logger.info(f"  [OK] Time metrics calculated")
 
@@ -453,29 +507,31 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
         'Processing_Days', 'TimeInStore_Days', 'DaysToPayment'
     ]
     existing_final = [c for c in final_columns if c in df.columns]
-    df_final = df[existing_final].copy()
+    df_final = df.select(existing_final)
 
     # Type enforcement
     int_cols = ['Delivery', 'HasDelivery', 'HasPickup', 'IsSubscriptionService', 'Paid', 'Pieces', 'Is_Earned']
+    cast_exprs = []
     for col in int_cols:
         if col in df_final.columns:
-            df_final[col] = df_final[col].fillna(0).astype(int)
+            cast_exprs.append(pl.col(col).cast(pl.Float64, strict=False).fill_null(0).cast(pl.Int32).alias(col))
+    if cast_exprs:
+        df_final = df_final.with_columns(cast_exprs)
 
     # Format dates
     date_output_cols = [
         'Placed_Date', 'Earned_Date', 'OrderCohortMonth', 'CohortMonth',
         'Ready By', 'Cleaned', 'Collected', 'Pickup Date', 'Payment Date', 'Delivery_Date'
     ]
-    df_final = format_dates_for_csv(df_final, date_output_cols)
+    df_final = polars_format_dates_for_csv(df_final, date_output_cols)
 
     # Sort
-    df_final = df_final.sort_values(['OrderCohortMonth', 'CustomerID_Std', 'OrderID_Std'])
-    df_final = df_final.reset_index(drop=True)
+    df_final = df_final.sort(['OrderCohortMonth', 'CustomerID_Std', 'OrderID_Std'])
 
-    logger.info(f"  [OK] Final output: {len(df_final):,} rows × {len(df_final.columns)} columns")
+    logger.info(f"  [OK] Final output: {df_final.height:,} rows x {len(df_final.columns)} columns")
 
     # Save
-    df_final.to_csv(output_path, index=False, encoding='utf-8')
+    df_final.write_csv(output_path)
     logger.info(f"  [OK] Saved to: {output_path}")
 
     # =====================================================================
@@ -486,16 +542,17 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     logger.info("=" * 70)
 
     logger.info(f"\nRow Counts:")
-    logger.info(f"  Legacy Orders:        {(df_final['Source'] == 'Legacy').sum():>8,}")
-    logger.info(f"  CC Orders:            {((df_final['Source'] == 'CC_2025') & (df_final['Transaction_Type'] == 'Order')).sum():>8,}")
-    logger.info(f"  Subscriptions:        {(df_final['Transaction_Type'] == 'Subscription').sum():>8,}")
-    logger.info(f"  Invoice Payments:     {(df_final['Transaction_Type'] == 'Invoice Payment').sum():>8,}")
+    logger.info(f"  Legacy Orders:        {df_final.filter(pl.col('Source') == 'Legacy').height:>8,}")
+    logger.info(f"  CC Orders:            {df_final.filter((pl.col('Source') == 'CC_2025') & (pl.col('Transaction_Type') == 'Order')).height:>8,}")
+    logger.info(f"  Subscriptions:        {df_final.filter(pl.col('Transaction_Type') == 'Subscription').height:>8,}")
+    logger.info(f"  Invoice Payments:     {df_final.filter(pl.col('Transaction_Type') == 'Invoice Payment').height:>8,}")
     logger.info(f"  {'-' * 40}")
-    logger.info(f"  TOTAL:                {len(df_final):>8,}")
+    logger.info(f"  TOTAL:                {df_final.height:>8,}")
 
-    orders_rev = df_final[df_final['Transaction_Type'] == 'Order']['Total_Num'].sum()
-    subs_rev = df_final[df_final['Transaction_Type'] == 'Subscription']['Total_Num'].sum()
-    inv_rev = df_final[df_final['Transaction_Type'] == 'Invoice Payment']['Total_Num'].sum()
+    total_num = df_final["Total_Num"].cast(pl.Float64, strict=False).fill_null(0)
+    orders_rev = df_final.filter(pl.col("Transaction_Type") == "Order").select(pl.col("Total_Num").sum()).item()
+    subs_rev = df_final.filter(pl.col("Transaction_Type") == "Subscription").select(pl.col("Total_Num").sum()).item()
+    inv_rev = df_final.filter(pl.col("Transaction_Type") == "Invoice Payment").select(pl.col("Total_Num").sum()).item()
 
     logger.info(f"\nRevenue:")
     logger.info(f"  Orders:               ${orders_rev:>12,.2f}")
@@ -504,7 +561,7 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     logger.info(f"  TOTAL:                ${(orders_rev + subs_rev + inv_rev):>12,.2f}")
 
     logger.info(f"\nKey Metrics:")
-    logger.info(f"  Unique Customers:     {df_final['CustomerID_Std'].nunique():>8,}")
+    logger.info(f"  Unique Customers:     {df_final['CustomerID_Std'].n_unique():>8,}")
     logger.info(f"  Subscription Orders:  {subscription_orders:>8,}")
 
     logger.info("\n" + "=" * 70)

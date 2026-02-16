@@ -1,14 +1,11 @@
 """
-DimPeriod Generator - Standalone Module
+DimPeriod Generator - Standalone Module (Polars)
 Generates date dimension with auto 3-month lookahead
 Can be imported by master script or run standalone
-
-FIXED: Date format now YYYY-MM-DD to match All_Sales
 """
 
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta, date
+import polars as pl
+from datetime import datetime, date
 import calendar
 import os
 from typing import Tuple, Optional
@@ -23,41 +20,31 @@ logger = setup_logger(__name__)
 
 def check_dimperiod_needs_update(dimperiod_path: str, months_forward: int = 3) -> Tuple[bool, str, Optional[date]]:
     """
-    Check if DimPeriod needs regenerating
-
-    Args:
-        dimperiod_path: Path to DimPeriod_Python.csv
-        months_forward: Required months forward coverage
+    Check if DimPeriod needs regenerating.
 
     Returns:
         (needs_update: bool, reason: str, current_max_date: date or None)
     """
-    # Calculate required max date (3 months forward)
     today = datetime.now()
     forward_months = today.month + months_forward
     forward_year = today.year + (forward_months - 1) // 12
     forward_month = ((forward_months - 1) % 12) + 1
     last_day = calendar.monthrange(forward_year, forward_month)[1]
-    required_max_date = datetime(forward_year, forward_month, last_day).date()
-    
-    # Check if file exists
+    required_max_date = date(forward_year, forward_month, last_day)
+
     if not os.path.exists(dimperiod_path):
         return True, "File doesn't exist", None
-    
+
     try:
-        # Load just the last few rows to check max date
-        df_tail = pd.read_csv(dimperiod_path, encoding='utf-8').tail(5)
-        
-        # Parse max date (now YYYY-MM-DD format)
-        max_date_str = df_tail['Date'].max()
-        max_date = pd.to_datetime(max_date_str, format='%Y-%m-%d').date()
-        
-        # Check if it covers required forward period
+        df = pl.read_csv(dimperiod_path, try_parse_dates=False)
+        max_date_str = df["Date"].tail(1).item()
+        max_date = datetime.strptime(max_date_str, "%Y-%m-%d").date()
+
         if max_date < required_max_date:
             return True, f"Only covers to {max_date}, need {required_max_date}", max_date
-        
+
         return False, "Up to date", max_date
-        
+
     except Exception as e:
         return True, f"Error reading file: {str(e)}", None
 
@@ -66,112 +53,123 @@ def check_dimperiod_needs_update(dimperiod_path: str, months_forward: int = 3) -
 # GENERATE DIMPERIOD
 # =====================================================================
 
-def generate_dimperiod(output_path: str, months_forward: int = 3, start_year: int = 2023, verbose: bool = True) -> pd.DataFrame:
+def generate_dimperiod(output_path: str, months_forward: int = 3, start_year: int = 2023, verbose: bool = True) -> pl.DataFrame:
     """
-    Generate DimPeriod dimension table with correct ISO weeks
-    Auto-extends to 3 months forward from today
-
-    Args:
-        output_path: Full path to DimPeriod_Python.csv
-        months_forward: How many months to look forward (default 3)
-        start_year: Starting year for dimension (default 2023)
-        verbose: Print progress messages (default True)
+    Generate DimPeriod dimension table with correct ISO weeks.
+    Auto-extends to 3 months forward from today.
 
     Returns:
-        DataFrame with date dimension
+        Polars DataFrame with date dimension
     """
     if verbose:
         logger.info("\n  Generating DimPeriod...")
-    
+
     # Calculate date range
-    start_date = f'{start_year}-01-01'
-    
-    # End date = 3 months forward from today
+    start_date = date(start_year, 1, 1)
+
     today = datetime.now()
     forward_months = today.month + months_forward
     forward_year = today.year + (forward_months - 1) // 12
     forward_month = ((forward_months - 1) % 12) + 1
-    
-    # Last day of the forward month
     last_day = calendar.monthrange(forward_year, forward_month)[1]
-    end_date = f'{forward_year}-{forward_month:02d}-{last_day:02d}'
-    
+    end_date = date(forward_year, forward_month, last_day)
+
     if verbose:
         logger.info(f"  Date range: {start_date} to {end_date}")
-    
+
     # Create date range
-    date_range = pd.date_range(start=start_date, end=end_date, freq='D')
-    df = pd.DataFrame({'Date': date_range})
-    
+    date_range = pl.date_range(start_date, end_date, interval="1d", eager=True)
+    df = pl.DataFrame({"Date": date_range})
+
+    d = pl.col("Date")
+
     # Basic date components
-    df['Year'] = df['Date'].dt.year
-    df['Quarter'] = df['Date'].dt.quarter
-    df['Month'] = df['Date'].dt.month
-    df['Day'] = df['Date'].dt.day
-    df['DayOfWeek'] = df['Date'].dt.dayofweek + 1
-    df['DayOfYear'] = df['Date'].dt.dayofyear
-    
-    df['MonthName'] = df['Date'].dt.strftime('%B')
-    df['MonthShort'] = df['Date'].dt.strftime('%b')
-    df['DayName'] = df['Date'].dt.strftime('%A')
-    df['DayShort'] = df['Date'].dt.strftime('%a')
-    
-    df['IsFirstDayOfMonth'] = (df['Date'].dt.day == 1).astype(int)
-    df['IsLastDayOfMonth'] = (df['Date'] == df['Date'].dt.to_period('M').dt.to_timestamp('M')).astype(int)
-    
-    # ISO WEEK - CORRECT!
-    iso_cal = df['Date'].dt.isocalendar()
-    df['ISOYear'] = iso_cal['year'].astype(int)
-    df['ISOWeek'] = iso_cal['week'].astype(int)
-    df['ISOWeekday'] = iso_cal['day'].astype(int)
-    df['ISOWeekLabel'] = df['ISOYear'].astype(str) + '-W' + df['ISOWeek'].astype(str).str.zfill(2)
-    df['IsFirstDayOfISOWeek'] = (df['ISOWeekday'] == 1).astype(int)
-    df['IsLastDayOfISOWeek'] = (df['ISOWeekday'] == 7).astype(int)
-    
+    df = df.with_columns([
+        d.dt.year().alias("Year"),
+        d.dt.quarter().alias("Quarter"),
+        d.dt.month().alias("Month"),
+        d.dt.day().alias("Day"),
+        (d.dt.weekday()).alias("DayOfWeek"),  # Polars: Mon=1..Sun=7
+        d.dt.ordinal_day().alias("DayOfYear"),
+        d.dt.strftime("%B").alias("MonthName"),
+        d.dt.strftime("%b").alias("MonthShort"),
+        d.dt.strftime("%A").alias("DayName"),
+        d.dt.strftime("%a").alias("DayShort"),
+    ])
+
+    # First/last day of month
+    df = df.with_columns([
+        (pl.col("Day") == 1).cast(pl.Int32).alias("IsFirstDayOfMonth"),
+        (d.dt.month_end() == d).cast(pl.Int32).alias("IsLastDayOfMonth"),
+    ])
+
+    # ISO week
+    df = df.with_columns([
+        d.dt.iso_year().alias("ISOYear"),
+        d.dt.week().alias("ISOWeek"),
+        d.dt.weekday().alias("ISOWeekday"),  # Mon=1..Sun=7
+    ])
+    df = df.with_columns([
+        (pl.col("ISOYear").cast(pl.Utf8) + pl.lit("-W") + pl.col("ISOWeek").cast(pl.Utf8).str.zfill(2))
+            .alias("ISOWeekLabel"),
+        (pl.col("ISOWeekday") == 1).cast(pl.Int32).alias("IsFirstDayOfISOWeek"),
+        (pl.col("ISOWeekday") == 7).cast(pl.Int32).alias("IsLastDayOfISOWeek"),
+    ])
+
     # Period columns
-    df['YearMonth'] = df['Date'].dt.strftime('%Y-%m')
-    df['YearQuarter'] = df['Year'].astype(str) + '-Q' + df['Quarter'].astype(str)
-    
-    # MonthStart = first day of month (simple date arithmetic - no Period objects!)
-    df['MonthStart'] = pd.to_datetime(df['Date'].dt.strftime('%Y-%m-01'))
-    
-    # QuarterStart = first day of quarter (Q1=Jan, Q2=Apr, Q3=Jul, Q4=Oct)
-    quarter_start_month = ((df['Quarter'] - 1) * 3 + 1).astype(str).str.zfill(2)
-    df['QuarterStart'] = pd.to_datetime(df['Year'].astype(str) + '-' + quarter_start_month + '-01')
-    
-    
-    # Fiscal periods
-    df['FiscalYear'] = df['Year']
-    df['FiscalQuarter'] = df['Quarter']
-    
+    df = df.with_columns([
+        d.dt.strftime("%Y-%m").alias("YearMonth"),
+        (pl.col("Year").cast(pl.Utf8) + pl.lit("-Q") + pl.col("Quarter").cast(pl.Utf8))
+            .alias("YearQuarter"),
+        d.dt.truncate("1mo").alias("MonthStart"),
+        d.dt.truncate("1q").alias("QuarterStart"),
+    ])
+
+    # Fiscal periods (same as calendar for this business)
+    df = df.with_columns([
+        pl.col("Year").alias("FiscalYear"),
+        pl.col("Quarter").alias("FiscalQuarter"),
+    ])
+
     # Weekend flags
-    df['IsWeekend'] = df['DayOfWeek'].isin([6, 7]).astype(int)
-    df['IsWeekday'] = (~df['DayOfWeek'].isin([6, 7])).astype(int)
-    
+    df = df.with_columns([
+        pl.col("DayOfWeek").is_in([6, 7]).cast(pl.Int32).alias("IsWeekend"),
+        (~pl.col("DayOfWeek").is_in([6, 7])).cast(pl.Int32).alias("IsWeekday"),
+    ])
+
     # Relative flags
-    today_normalized = pd.Timestamp.now().normalize()
-    
-    # Current month start (simple calculation)
-    current_month_start = pd.to_datetime(today_normalized.strftime('%Y-%m-01'))
-    df['IsCurrentMonth'] = (df['MonthStart'] == current_month_start).astype(int)
-    
-    # Current quarter start  
-    current_quarter = (today_normalized.month - 1) // 3 + 1
+    today_date = date.today()
+    current_month_start = date(today_date.year, today_date.month, 1)
+    current_quarter = (today_date.month - 1) // 3 + 1
     current_quarter_month = (current_quarter - 1) * 3 + 1
-    current_quarter_start = pd.to_datetime(f'{today_normalized.year}-{current_quarter_month:02d}-01')
-    df['IsCurrentQuarter'] = (df['QuarterStart'] == current_quarter_start).astype(int)
-    
-    df['IsCurrentYear'] = (df['Year'] == today_normalized.year).astype(int)
-    
-    current_iso = today_normalized.isocalendar()
-    df['IsCurrentISOWeek'] = ((df['ISOYear'] == current_iso[0]) & (df['ISOWeek'] == current_iso[1])).astype(int)
-    
+    current_quarter_start = date(today_date.year, current_quarter_month, 1)
+    current_iso = today_date.isocalendar()
+
+    df = df.with_columns([
+        (pl.col("MonthStart").cast(pl.Date) == pl.lit(current_month_start)).cast(pl.Int32)
+            .alias("IsCurrentMonth"),
+        (pl.col("QuarterStart").cast(pl.Date) == pl.lit(current_quarter_start)).cast(pl.Int32)
+            .alias("IsCurrentQuarter"),
+        (pl.col("Year") == today_date.year).cast(pl.Int32).alias("IsCurrentYear"),
+        ((pl.col("ISOYear") == current_iso[0]) & (pl.col("ISOWeek") == current_iso[1]))
+            .cast(pl.Int32).alias("IsCurrentISOWeek"),
+    ])
+
     # Sort orders
-    df['MonthSortOrder'] = df['Month']
-    df['DayOfWeekSortOrder'] = df['DayOfWeek']
-    df['QuarterSortOrder'] = df['Quarter']
-    
-    # Column order
+    df = df.with_columns([
+        pl.col("Month").alias("MonthSortOrder"),
+        pl.col("DayOfWeek").alias("DayOfWeekSortOrder"),
+        pl.col("Quarter").alias("QuarterSortOrder"),
+    ])
+
+    # Format date columns as YYYY-MM-DD strings
+    df = df.with_columns([
+        d.dt.strftime("%Y-%m-%d").alias("Date"),
+        pl.col("MonthStart").dt.strftime("%Y-%m-%d").alias("MonthStart"),
+        pl.col("QuarterStart").dt.strftime("%Y-%m-%d").alias("QuarterStart"),
+    ])
+
+    # Column order (matches original)
     column_order = [
         'Date', 'Year', 'Quarter', 'Month', 'Day',
         'YearMonth', 'YearQuarter', 'MonthStart', 'QuarterStart',
@@ -184,24 +182,17 @@ def generate_dimperiod(output_path: str, months_forward: int = 3, start_year: in
         'IsCurrentMonth', 'IsCurrentQuarter', 'IsCurrentYear', 'IsCurrentISOWeek',
         'FiscalYear', 'FiscalQuarter'
     ]
-    
-    df_final = df[column_order].copy()
-    
-    # =====================================================================
-    # CRITICAL FIX: Format dates as YYYY-MM-DD (matches All_Sales format)
-    # =====================================================================
-    date_columns = ['Date', 'MonthStart', 'QuarterStart']
-    for col in date_columns:
-        df_final[col] = df_final[col].dt.strftime('%Y-%m-%d')  # ← FIXED!
-    
-    # Save
-    df_final.to_csv(output_path, index=False, encoding='utf-8')
-    
+
+    df_final = df.select(column_order)
+
+    # Save CSV
+    df_final.write_csv(output_path)
+
     if verbose:
-        logger.info(f"  Total rows: {len(df_final):,}")
+        logger.info(f"  Total rows: {df_final.height:,}")
         logger.info(f"  Date format: YYYY-MM-DD (matches All_Sales)")
         logger.info(f"  Saved to: {os.path.basename(output_path)}")
-    
+
     return df_final
 
 
@@ -214,13 +205,13 @@ if __name__ == "__main__":
 
     from config import ONEDRIVE_SALES_DATA_PATH
     OUTPUT_PATH = os.path.join(str(ONEDRIVE_SALES_DATA_PATH), "DimPeriod_Python.csv")
-    
+
     logger.info("=" * 70)
     logger.info("DIMPERIOD GENERATOR - STANDALONE EXECUTION")
     logger.info("=" * 70)
     logger.info("")
     needs_update, reason, current_max = check_dimperiod_needs_update(OUTPUT_PATH, months_forward=3)
-    
+
     if not needs_update:
         logger.info(f"[OK] DimPeriod is already current (covers to {current_max})")
         response = input("\nForce regeneration anyway? (y/n): ")
@@ -229,10 +220,10 @@ if __name__ == "__main__":
             sys.exit(0)
     else:
         logger.info(f"[INFO] DimPeriod needs update: {reason}")
-    
+
     logger.info("\nRegenerating DimPeriod with 3-month lookahead...")
     df = generate_dimperiod(OUTPUT_PATH, months_forward=3, start_year=2023, verbose=True)
-    
+
     logger.info("\n" + "=" * 70)
     logger.info("[DONE] DIMPERIOD GENERATION COMPLETE!")
     logger.info("=" * 70)

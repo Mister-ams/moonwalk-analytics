@@ -9,8 +9,9 @@ Provides cached batch SQL fetch functions for:
 - Payments (06) — collections by method, processing metrics
 """
 
+import time
 import streamlit as st
-from dashboard_shared import get_grain_context
+from dashboard_shared import get_grain_context, _log_query_time
 
 
 # =====================================================================
@@ -20,6 +21,7 @@ from dashboard_shared import get_grain_context
 @st.cache_data(ttl=300)
 def fetch_customer_insights_batch(_con, months_tuple):
     """Fetch active customers, multi-service, and top-20% analysis."""
+    _t0 = time.perf_counter()
     months = list(months_tuple)
     placeholders = ", ".join(f"'{m}'" for m in months)
 
@@ -82,6 +84,7 @@ def fetch_customer_insights_batch(_con, months_tuple):
             "ci_top20_vol_rev": top20_vol_rev,
             "ci_volume_share": top20_vol_rev / total_rev if total_rev > 0 else 0.0,
         }
+    _log_query_time("fetch_customer_insights_batch", time.perf_counter() - _t0, len(months))
     return result
 
 
@@ -92,6 +95,7 @@ def fetch_customer_insights_batch(_con, months_tuple):
 @st.cache_data(ttl=300)
 def fetch_cohort_batch(_con, months_tuple):
     """Fetch M0/M1 customer counts, items, revenue, and retention metrics."""
+    _t0 = time.perf_counter()
     months = list(months_tuple)
     placeholders = ", ".join(f"'{m}'" for m in months)
 
@@ -141,6 +145,7 @@ def fetch_cohort_batch(_con, months_tuple):
             row[f"{prefix}_items_per_customer"] = items / customers if customers > 0 else 0.0
 
         result[m] = row
+    _log_query_time("fetch_cohort_batch", time.perf_counter() - _t0, len(months))
     return result
 
 
@@ -179,6 +184,7 @@ def compute_cohort_retention(trend_data, available_months, selected_month):
 @st.cache_data(ttl=300)
 def fetch_logistics_batch(_con, periods_tuple):
     """Fetch stops, delivery metrics, and geographic distribution."""
+    _t0 = time.perf_counter()
     periods = list(periods_tuple)
     ctx = get_grain_context(periods)
     period_col, sales_join = ctx["period_col"], ctx["sales_join"]
@@ -244,6 +250,7 @@ def fetch_logistics_batch(_con, periods_tuple):
             "lg_pickups": pickups,
             "geo": geo,
         }
+    _log_query_time("fetch_logistics_batch", time.perf_counter() - _t0, len(periods))
     return result
 
 
@@ -254,6 +261,7 @@ def fetch_logistics_batch(_con, periods_tuple):
 @st.cache_data(ttl=300)
 def fetch_operations_batch(_con, periods_tuple):
     """Fetch items and revenue by Item_Category and Service_Type."""
+    _t0 = time.perf_counter()
     periods = list(periods_tuple)
     ctx = get_grain_context(periods)
     period_col, sales_join = ctx["period_col"], ctx["sales_join"]
@@ -322,6 +330,7 @@ def fetch_operations_batch(_con, periods_tuple):
         row["ops_avg_time_in_store"] = float(p_row["avg_time_in_store"].iloc[0]) if len(p_row) else 0.0
 
         result[pd] = row
+    _log_query_time("fetch_operations_batch", time.perf_counter() - _t0, len(periods))
     return result
 
 
@@ -332,6 +341,7 @@ def fetch_operations_batch(_con, periods_tuple):
 @st.cache_data(ttl=300)
 def fetch_payments_batch(_con, periods_tuple):
     """Fetch revenue, collections by method, and processing metrics."""
+    _t0 = time.perf_counter()
     periods = list(periods_tuple)
     ctx = get_grain_context(periods)
     period_col, sales_join = ctx["period_col"], ctx["sales_join"]
@@ -363,4 +373,5 @@ def fetch_payments_batch(_con, periods_tuple):
             "pm_cash": float(r["cash"].iloc[0]) if len(r) else 0.0,
             "pm_avg_days_to_payment": float(r["avg_days_to_payment"].iloc[0]) if len(r) else 0.0,
         }
+    _log_query_time("fetch_payments_batch", time.perf_counter() - _t0, len(periods))
     return result

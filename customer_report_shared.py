@@ -9,13 +9,15 @@ Provides batch SQL fetch for customer acquisition and per-customer item measures
 - revenue per customer / per client / per subscriber
 """
 
+import time
 import streamlit as st
-from dashboard_shared import get_grain_context
+from dashboard_shared import get_grain_context, _log_query_time
 
 
 @st.cache_data(ttl=300)
 def fetch_customer_measures_batch(_con, periods_tuple):
     """Fetch customer, item, and revenue measures for multiple periods in three queries."""
+    _t0 = time.perf_counter()
     periods = list(periods_tuple)
     ctx = get_grain_context(periods)
     period_col, sales_join = ctx["period_col"], ctx["sales_join"]
@@ -113,12 +115,14 @@ def fetch_customer_measures_batch(_con, periods_tuple):
             "rev_per_client": rev_client / clients if clients > 0 else 0.0,
             "rev_per_subscriber": rev_sub / subscribers if subscribers > 0 else 0.0,
         }
+    _log_query_time("fetch_customer_measures_batch", time.perf_counter() - _t0, len(periods))
     return result
 
 
 @st.cache_data(ttl=300)
 def fetch_new_customer_detail_batch(_con, months_tuple):
     """Fetch new vs existing customer splits for items and revenue."""
+    _t0 = time.perf_counter()
     months = list(months_tuple)
     placeholders = ", ".join(f"'{m}'" for m in months)
 
@@ -185,4 +189,5 @@ def fetch_new_customer_detail_batch(_con, months_tuple):
             "new_revenue": rev_new,
             "existing_revenue": rev_existing,
         }
+    _log_query_time("fetch_new_customer_detail_batch", time.perf_counter() - _t0, len(months))
     return result

@@ -17,10 +17,12 @@ ARCHITECTURE:
 import subprocess
 import sys
 import time
+import tracemalloc
+import json
 from pathlib import Path
 import os
-from typing import Tuple, Dict
-import pandas as pd
+from typing import Tuple, Dict, List
+import polars as pl
 
 
 # =====================================================================
@@ -30,11 +32,50 @@ import pandas as pd
 PYTHON_SCRIPT_FOLDER = Path(__file__).resolve().parent
 sys.path.insert(0, str(PYTHON_SCRIPT_FOLDER))
 
-from config import LOCAL_STAGING_PATH, DOWNLOADS_PATH
+from config import LOCAL_STAGING_PATH, DOWNLOADS_PATH, LOGS_PATH
 from logger_config import setup_logger
 
 # Setup logger
 logger = setup_logger(__name__)
+
+
+# =====================================================================
+# PROFILING
+# =====================================================================
+
+_profile_entries: List[dict] = []
+
+
+def _snap_memory() -> float:
+    """Return current peak memory in MB (tracemalloc must be started)."""
+    _, peak = tracemalloc.get_traced_memory()
+    return peak / (1024 * 1024)
+
+
+def _record_phase(name: str, elapsed: float, rows: int = 0) -> None:
+    """Record a profiling entry for a pipeline phase."""
+    _profile_entries.append({
+        "phase": name,
+        "elapsed_s": round(elapsed, 3),
+        "rows": rows,
+        "peak_memory_mb": round(_snap_memory(), 1),
+    })
+
+
+def _write_profile(total_elapsed: float) -> None:
+    """Write profiling results to a JSON file in the logs directory."""
+    from datetime import datetime
+    profile = {
+        "timestamp": datetime.now().isoformat(),
+        "total_elapsed_s": round(total_elapsed, 3),
+        "peak_memory_mb": round(_snap_memory(), 1),
+        "phases": _profile_entries,
+    }
+    LOGS_PATH.mkdir(parents=True, exist_ok=True)
+    profile_path = LOGS_PATH / f"etl_profile_{datetime.now():%Y-%m-%d_%H%M%S}.json"
+    profile_path.write_text(json.dumps(profile, indent=2))
+    logger.info(f"  [PROFILE] Written to {profile_path.name}")
+    return profile
 
 # Create local staging folder if it doesn't exist
 if not LOCAL_STAGING_PATH.exists():
@@ -70,7 +111,7 @@ TRANSFORMS = [
 # LOAD SOURCE CSVs (SHARED ACROSS TRANSFORMS)
 # =====================================================================
 
-def load_source_csvs() -> Dict[str, pd.DataFrame]:
+def load_source_csvs() -> Dict[str, pl.DataFrame]:
     """
     Load all source CSVs once (shared across transforms).
 
@@ -84,42 +125,46 @@ def load_source_csvs() -> Dict[str, pd.DataFrame]:
 
     from helpers import find_cleancloud_file
 
+    _csv_load_start = time.time()
     shared_data = {}
 
     try:
         # CC Customers
         logger.info("  Loading CC customers...")
         customers_path = find_cleancloud_file('customer')
-        shared_data['customers_csv'] = pd.read_csv(customers_path, encoding='utf-8', low_memory=False)
-        logger.info(f"    [OK] {len(shared_data['customers_csv']):,} rows")
+        shared_data['customers_csv'] = pl.read_csv(customers_path, infer_schema_length=10000)
+        logger.info(f"    [OK] {shared_data['customers_csv'].height:,} rows")
 
         # CC Orders
         logger.info("  Loading CC orders...")
         orders_path = find_cleancloud_file('orders')
-        shared_data['orders_csv'] = pd.read_csv(orders_path, encoding='utf-8', low_memory=False)
-        logger.info(f"    [OK] {len(shared_data['orders_csv']):,} rows")
+        shared_data['orders_csv'] = pl.read_csv(orders_path, infer_schema_length=10000)
+        logger.info(f"    [OK] {shared_data['orders_csv'].height:,} rows")
 
         # Invoices
         logger.info("  Loading invoices...")
         invoices_path = find_cleancloud_file('invoice')
-        shared_data['invoices_csv'] = pd.read_csv(invoices_path, encoding='utf-8', low_memory=False)
-        logger.info(f"    [OK] {len(shared_data['invoices_csv']):,} rows")
+        shared_data['invoices_csv'] = pl.read_csv(invoices_path, infer_schema_length=10000)
+        logger.info(f"    [OK] {shared_data['invoices_csv'].height:,} rows")
 
         # CC Items
         logger.info("  Loading CC items...")
         items_path = find_cleancloud_file('item')
-        shared_data['items_csv'] = pd.read_csv(items_path, encoding='utf-8', low_memory=False)
-        logger.info(f"    [OK] {len(shared_data['items_csv']):,} rows")
+        shared_data['items_csv'] = pl.read_csv(items_path, infer_schema_length=10000)
+        logger.info(f"    [OK] {shared_data['items_csv'].height:,} rows")
 
         # Legacy orders
         logger.info("  Loading legacy orders...")
         legacy_path = LOCAL_STAGING_PATH / "RePos_Archive.csv"
         if legacy_path.exists():
-            shared_data['legacy_csv'] = pd.read_csv(legacy_path, encoding='utf-8', low_memory=False)
-            logger.info(f"    [OK] {len(shared_data['legacy_csv']):,} rows")
+            shared_data['legacy_csv'] = pl.read_csv(str(legacy_path), infer_schema_length=10000)
+            logger.info(f"    [OK] {shared_data['legacy_csv'].height:,} rows")
         else:
             logger.warning(f"    [WARN] Legacy file not found: {legacy_path}")
-            shared_data['legacy_csv'] = pd.DataFrame()
+            shared_data['legacy_csv'] = pl.DataFrame()
+
+        total_rows = sum(df.height for df in shared_data.values())
+        _record_phase("load_source_csvs", time.time() - _csv_load_start, total_rows)
 
         logger.info("")
         logger.info("  [DONE] All source CSVs loaded")
@@ -179,9 +224,9 @@ def check_and_update_dimperiod() -> bool:
         elapsed = time.time() - start_time
 
         # Get date range info
-        first_date = df['Date'].iloc[0]
-        last_date = df['Date'].iloc[-1]
-        row_count = len(df)
+        first_date = df['Date'][0]
+        last_date = df['Date'][-1]
+        row_count = df.height
 
         logger.info(f"\n[OK] DimPeriod regenerated successfully in {elapsed:.1f}s")
         logger.info(f"  Date range: {first_date} to {last_date}")
@@ -205,6 +250,16 @@ def check_and_update_dimperiod() -> bool:
 # =====================================================================
 # RUN TRANSFORMS IN-PROCESS (NO SUBPROCESS)
 # =====================================================================
+
+def _export_parquet(df: pl.DataFrame, csv_path: str, module_name: str) -> None:
+    """Export a DataFrame to Parquet alongside the CSV output."""
+    parquet_path = Path(csv_path).with_suffix('.parquet')
+    try:
+        df.write_parquet(parquet_path)
+        logger.info(f"  [PARQUET] {parquet_path.name} ({parquet_path.stat().st_size / 1024:.0f} KB)")
+    except Exception as e:
+        logger.warning(f"  [WARN] Parquet export failed for {module_name}: {str(e)[:60]}")
+
 
 def run_transform_inprocess(module_name: str, transform_name: str, description: str, shared_data: Dict) -> Tuple[bool, float]:
     """
@@ -236,19 +291,25 @@ def run_transform_inprocess(module_name: str, transform_name: str, description: 
         # Store result in shared_data for downstream transforms
         shared_data[transform_name] = df_result
 
+        # Export Parquet alongside CSV
+        _export_parquet(df_result, output_path, module_name)
+
         elapsed = time.time() - start_time
+        rows = df_result.height if df_result is not None else 0
+        _record_phase(module_name, elapsed, rows)
         logger.info(f"\n[DONE] {description} completed in {elapsed:.1f} seconds")
 
         return True, elapsed
 
     except Exception as e:
         elapsed = time.time() - start_time
+        _record_phase(module_name, elapsed, 0)
         logger.error(f"\n[ERROR] {description} FAILED after {elapsed:.1f} seconds")
         logger.error(f"Error: {str(e)}")
 
         # Log full traceback
-        import traceback
-        logger.debug(traceback.format_exc())
+        import traceback as tb
+        logger.debug(tb.format_exc())
 
         return False, elapsed
 
@@ -266,20 +327,20 @@ _KEY_COLUMNS = {
 }
 
 
-def _validate_transform_output(transform_name: str, df: pd.DataFrame) -> None:
+def _validate_transform_output(transform_name: str, df: pl.DataFrame) -> None:
     """Validate a single transform's output for row counts and null key columns."""
     issues = []
 
     # Row count sanity check
-    if len(df) == 0:
+    if df.height == 0:
         issues.append("EMPTY: 0 rows produced")
 
     # Null key columns check
     for key_col in _KEY_COLUMNS.get(transform_name, []):
         if key_col in df.columns:
-            null_count = df[key_col].isna().sum()
+            null_count = df[key_col].null_count()
             if null_count > 0:
-                pct = null_count / len(df) * 100
+                pct = null_count / df.height * 100
                 issues.append(f"NULL KEYS: {null_count:,} ({pct:.1f}%) null values in {key_col}")
 
     if issues:
@@ -287,7 +348,7 @@ def _validate_transform_output(transform_name: str, df: pd.DataFrame) -> None:
         for issue in issues:
             logger.warning(f"    - {issue}")
     else:
-        logger.info(f"  [VALIDATION] {transform_name}: OK ({len(df):,} rows, keys clean)")
+        logger.info(f"  [VALIDATION] {transform_name}: OK ({df.height:,} rows, keys clean)")
 
 
 def _validate_cross_transform(shared_data: Dict) -> None:
@@ -305,18 +366,18 @@ def _validate_cross_transform(shared_data: Dict) -> None:
         return
 
     # 1. Orphan order check: items with no matching sales order
-    sales_orders = set(sales_df['OrderID_Std'].dropna().unique())
-    items_orders = set(items_df['OrderID_Std'].dropna().unique())
+    sales_orders = set(sales_df['OrderID_Std'].drop_nulls().unique().to_list())
+    items_orders = set(items_df['OrderID_Std'].drop_nulls().unique().to_list())
     orphan_orders = items_orders - sales_orders
     orphan_count = len(orphan_orders)
     orphan_pct = orphan_count / len(items_orders) * 100 if items_orders else 0
 
     if orphan_count > 0:
         # Count affected item rows
-        orphan_item_rows = items_df[items_df['OrderID_Std'].isin(orphan_orders)]
+        orphan_item_rows = items_df.filter(pl.col('OrderID_Std').is_in(list(orphan_orders)))
         logger.warning(
             f"  [WARN] Orphan orders: {orphan_count:,} orders in items with no sales match "
-            f"({orphan_pct:.1f}% of item orders, {len(orphan_item_rows):,} item rows)"
+            f"({orphan_pct:.1f}% of item orders, {orphan_item_rows.height:,} item rows)"
         )
         logger.info(f"    Known issue: CleanCloud CSV export mismatch (not ETL bug)")
     else:
@@ -324,8 +385,8 @@ def _validate_cross_transform(shared_data: Dict) -> None:
 
     # 2. Customer coverage: sales customers missing from customers table
     if customers_df is not None:
-        sales_customers = set(sales_df['CustomerID_Std'].dropna().unique())
-        known_customers = set(customers_df['CustomerID_Std'].dropna().unique())
+        sales_customers = set(sales_df['CustomerID_Std'].drop_nulls().unique().to_list())
+        known_customers = set(customers_df['CustomerID_Std'].drop_nulls().unique().to_list())
         missing_customers = sales_customers - known_customers
         if missing_customers:
             logger.warning(
@@ -359,12 +420,25 @@ def run_all_transforms() -> bool:
         logger.info(f"\n[ERROR] Downloads folder not found: {DOWNLOADS_PATH}")
         return False
     
+    # Start memory profiling
+    tracemalloc.start()
+
     # Track results
     results = []
     total_start = time.time()
     
     # STEP 0: Check & update DimPeriod
     dimperiod_success = check_and_update_dimperiod()
+
+    # Export DimPeriod Parquet (always, since DimPeriod is pre-existing)
+    dimperiod_csv = LOCAL_STAGING_PATH / "DimPeriod_Python.csv"
+    if dimperiod_csv.exists():
+        try:
+            dp_df = pl.read_csv(str(dimperiod_csv), infer_schema_length=10000)
+            _export_parquet(dp_df, str(dimperiod_csv), "generate_dimperiod")
+            del dp_df
+        except Exception:
+            pass
 
     # STEP 1: Load source CSVs once
     try:
@@ -402,28 +476,33 @@ def run_all_transforms() -> bool:
     _validate_cross_transform(shared_data)
 
     total_elapsed = time.time() - total_start
-    
+
+    # Write profiling results
+    profile = _write_profile(total_elapsed)
+    tracemalloc.stop()
+
     # Summary
     logger.info("\n" + "=" * 70)
     logger.info("TRANSFORMATION SUMMARY")
     logger.info("=" * 70)
     logger.info("")
-    
+
     # DimPeriod status
     if dimperiod_success:
         logger.info(f"{'DimPeriod Check':<30} [[OK]] (auto-updated)")
     else:
         logger.info(f"{'DimPeriod Check':<30} [[WARN]] (check manually)")
-    
+
     # Transform results
     for result in results:
         status = "[DONE]" if result['success'] else "[ERROR]"
         logger.info(f"{result['name']:<30} {status} ({result['elapsed']:>5.1f}s)")
-    
+
     logger.info(f"{'-' * 70}")
     logger.info(f"{'TOTAL TIME':<30} {total_elapsed:>10.1f}s")
+    logger.info(f"{'PEAK MEMORY':<30} {profile['peak_memory_mb']:>8.1f} MB")
     logger.info("")
-    
+
     logger.info("[DONE] All transformations successful!")
     return True
 

@@ -1,24 +1,16 @@
 """
-All_Customers Transformation Script - OPTIMIZED VERSION
+All_Customers Transformation Script (Polars)
 Combines CC customers and Legacy customers into master customer table
-
-OPTIMIZATIONS:
-- Uses shared helpers (no local duplicates of find_cleancloud_file, standardize_*)
-- Vectorized date/store/ID operations
-- Callable run() function for single-process master script
 """
 
-import pandas as pd
-import numpy as np
+import polars as pl
 import warnings
 import os
-from typing import Optional, Dict, Tuple
-warnings.filterwarnings('ignore')
+from typing import Optional, Dict, Tuple, Union
 
 from helpers import (
-    find_cleancloud_file, vectorized_to_date, vectorized_store_std,
-    vectorized_customer_id_std, fx_pad_digits, format_dates_for_csv,
-    DOWNLOADS_PATH,
+    find_cleancloud_file, polars_to_date, polars_store_std,
+    polars_customer_id_std, polars_format_dates_for_csv,
 )
 from config import LOCAL_STAGING_PATH
 
@@ -30,20 +22,20 @@ logger = setup_logger(__name__)
 # MAIN TRANSFORMATION
 # =====================================================================
 
-def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataFrame, str]:
+def run(shared_data: Optional[Dict[str, Union[pl.DataFrame]]] = None) -> Tuple[pl.DataFrame, str]:
     """
     Run All_Customers transformation.
 
     Args:
         shared_data: dict with pre-loaded DataFrames:
-            - 'customers_csv': CC customers DataFrame
+            - 'customers_csv': CC customers DataFrame (Polars)
             If None, loads from disk.
-    
+
     Returns:
         (df_final, output_path) tuple
     """
     logger.info("=" * 70)
-    logger.info("ALL_CUSTOMERS TRANSFORMATION - OPTIMIZED")
+    logger.info("ALL_CUSTOMERS TRANSFORMATION - POLARS")
     logger.info("=" * 70)
     logger.info("")
     output_path = os.path.join(LOCAL_STAGING_PATH, "All_Customers_Python.csv")
@@ -55,61 +47,79 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     logger.info("Phase 1: Loading CC customers...")
 
     if shared_data and 'customers_csv' in shared_data:
-        df_cc = shared_data['customers_csv'].copy()
-        logger.info(f"  [OK] Using pre-loaded {len(df_cc):,} CC customer rows")
+        df_cc = shared_data['customers_csv'].clone()
+        logger.info(f"  [OK] Using pre-loaded {df_cc.height:,} CC customer rows")
     else:
         cc_path = find_cleancloud_file('customer')
-        df_cc = pd.read_csv(cc_path, encoding='utf-8', low_memory=False)
-        logger.info(f"  [OK] Loaded {len(df_cc):,} CC customer rows")
+        df_cc = pl.read_csv(cc_path, infer_schema_length=10000)
+        logger.info(f"  [OK] Loaded {df_cc.height:,} CC customer rows")
 
     # Keep only needed columns
     cc_wanted = ['Customer ID', 'Name', 'Store ID', 'Signed Up Date', 'Route #', 'Business ID']
     existing_cc = [col for col in cc_wanted if col in df_cc.columns]
-    df_cc = df_cc[existing_cc].copy()
+    df_cc = df_cc.select(existing_cc)
 
-    # Vectorized: Source, Store, CustomerID, Dates
-    df_cc['Source_System'] = 'CC_2025'
+    # Source
+    df_cc = df_cc.with_columns(pl.lit("CC_2025").alias("Source_System"))
 
-    df_cc['CustomerID_Std'] = vectorized_customer_id_std(
-        df_cc['Customer ID'],
-        pd.Series('CC_2025', index=df_cc.index)
+    # CustomerID_Std
+    df_cc = df_cc.with_columns(
+        polars_customer_id_std("Customer ID", "Source_System").alias("CustomerID_Std")
     )
 
-    df_cc['CustomerName'] = df_cc['Name'].where(
-        df_cc['Name'].notna() & (df_cc['Name'].astype(str).str.strip() != ''),
-        other=None
+    # CustomerName
+    df_cc = df_cc.with_columns(
+        pl.when(
+            pl.col("Name").is_not_null()
+            & (pl.col("Name").cast(pl.Utf8).str.strip_chars() != "")
+        )
+        .then(pl.col("Name").cast(pl.Utf8).str.strip_chars())
+        .otherwise(pl.lit(None, dtype=pl.Utf8))
+        .alias("CustomerName")
     )
-    # Clean up whitespace on valid names
-    valid_names = df_cc['CustomerName'].notna()
-    df_cc.loc[valid_names, 'CustomerName'] = df_cc.loc[valid_names, 'CustomerName'].astype(str).str.strip()
 
-    df_cc['Store_Std'] = vectorized_store_std(df_cc['Store ID'])
+    # Store_Std
+    df_cc = df_cc.with_columns(
+        polars_store_std("Store ID").alias("Store_Std")
+    )
 
-    df_cc['SignedUp_Date'] = vectorized_to_date(df_cc.get('Signed Up Date', pd.Series(dtype='object')))
+    # SignedUp_Date
+    if "Signed Up Date" in df_cc.columns:
+        df_cc = polars_to_date(df_cc, "Signed Up Date", alias="SignedUp_Date")
+    else:
+        df_cc = df_cc.with_columns(pl.lit(None, dtype=pl.Datetime("us")).alias("SignedUp_Date"))
 
-    df_cc['CohortMonth'] = df_cc['SignedUp_Date'].dt.to_period('M').dt.to_timestamp()
-    df_cc.loc[df_cc['SignedUp_Date'].isna(), 'CohortMonth'] = pd.NaT
+    # CohortMonth
+    df_cc = df_cc.with_columns(
+        pl.col("SignedUp_Date").dt.truncate("1mo").alias("CohortMonth")
+    )
 
     # Route #
-    if 'Route #' in df_cc.columns:
-        df_cc['Route #'] = pd.to_numeric(df_cc['Route #'], errors='coerce').fillna(0).astype(int)
+    if "Route #" in df_cc.columns:
+        df_cc = df_cc.with_columns(
+            pl.col("Route #").cast(pl.Float64, strict=False).fill_null(0).cast(pl.Int32).alias("Route #")
+        )
     else:
-        df_cc['Route #'] = 0
+        df_cc = df_cc.with_columns(pl.lit(0).cast(pl.Int32).alias("Route #"))
 
     # IsBusinessAccount
-    if 'Business ID' in df_cc.columns:
-        df_cc['IsBusinessAccount'] = (pd.to_numeric(df_cc['Business ID'], errors='coerce').fillna(0) > 0).astype(int)
+    if "Business ID" in df_cc.columns:
+        df_cc = df_cc.with_columns(
+            (pl.col("Business ID").cast(pl.Utf8).fill_null("") != "")
+            .cast(pl.Int32)
+            .alias("IsBusinessAccount")
+        )
     else:
-        df_cc['IsBusinessAccount'] = 0
+        df_cc = df_cc.with_columns(pl.lit(0).cast(pl.Int32).alias("IsBusinessAccount"))
 
     final_cols = [
         'CustomerID_Std', 'CustomerName', 'Store_Std', 'SignedUp_Date',
         'CohortMonth', 'Route #', 'IsBusinessAccount', 'Source_System'
     ]
-    df_cc_clean = df_cc[final_cols].copy()
+    df_cc_clean = df_cc.select(final_cols)
 
-    logger.info(f"  [OK] Processed {len(df_cc_clean):,} CC customers")
-    logger.info(f"  [OK] Business accounts: {df_cc_clean['IsBusinessAccount'].sum():,}")
+    logger.info(f"  [OK] Processed {df_cc_clean.height:,} CC customers")
+    logger.info(f"  [OK] Business accounts: {df_cc_clean.filter(pl.col('IsBusinessAccount') == 1).height:,}")
 
     # =====================================================================
     # PHASE 2: LOAD LEGACY CUSTOMERS
@@ -117,61 +127,64 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     logger.info("\nPhase 2: Loading Legacy customers...")
 
     if shared_data and 'legacy_csv' in shared_data:
-        df_legacy = shared_data['legacy_csv'].copy()
+        df_legacy = shared_data['legacy_csv'].clone()
     else:
-        df_legacy = pd.read_csv(legacy_path, encoding='utf-8', low_memory=False)
+        df_legacy = pl.read_csv(legacy_path, infer_schema_length=10000)
 
-    initial_legacy_count = len(df_legacy)
+    initial_legacy_count = df_legacy.height
     logger.info(f"  [OK] Loaded {initial_legacy_count:,} legacy order rows")
 
     legacy_wanted = ['Customer ID', 'Customer', 'Placed']
     existing_legacy = [col for col in legacy_wanted if col in df_legacy.columns]
-    df_legacy = df_legacy[existing_legacy].copy()
+    df_legacy = df_legacy.select(existing_legacy)
 
-    # Vectorized date parsing
+    # Parse Placed date
     if 'Placed' in df_legacy.columns:
-        df_legacy['Placed'] = vectorized_to_date(df_legacy['Placed'])
+        df_legacy = polars_to_date(df_legacy, 'Placed')
 
-    # Vectorized CustomerID_Std
-    df_legacy['CustomerID_Std'] = vectorized_customer_id_std(
-        df_legacy['Customer ID'],
-        pd.Series('Legacy', index=df_legacy.index)
+    # CustomerID_Std
+    df_legacy = df_legacy.with_columns(pl.lit("Legacy").alias("_source"))
+    df_legacy = df_legacy.with_columns(
+        polars_customer_id_std("Customer ID", "_source").alias("CustomerID_Std")
     )
 
-    # Group by CustomerID_Std
-    legacy_grouped = df_legacy.groupby('CustomerID_Std').agg(
-        CustomerName=('Customer', lambda x: x.dropna().iloc[0] if len(x.dropna()) > 0 else None),
-        SignedUp_Date=('Placed', 'min') if 'Placed' in df_legacy.columns else ('Customer ID', lambda x: None)
-    ).reset_index()
+    # Group by CustomerID_Std: first non-null name, earliest date
+    legacy_grouped = df_legacy.group_by("CustomerID_Std").agg([
+        pl.col("Customer").drop_nulls().first().alias("CustomerName"),
+        pl.col("Placed").min().alias("SignedUp_Date"),
+    ])
 
     # CohortMonth
-    legacy_grouped['CohortMonth'] = legacy_grouped['SignedUp_Date'].dt.to_period('M').dt.to_timestamp()
-    legacy_grouped.loc[legacy_grouped['SignedUp_Date'].isna(), 'CohortMonth'] = pd.NaT
+    legacy_grouped = legacy_grouped.with_columns(
+        pl.col("SignedUp_Date").dt.truncate("1mo").alias("CohortMonth")
+    )
 
-    legacy_grouped['Store_Std'] = 'Moon Walk'
-    legacy_grouped['Route #'] = 0
-    legacy_grouped['IsBusinessAccount'] = 0
-    legacy_grouped['Source_System'] = 'Legacy'
+    legacy_grouped = legacy_grouped.with_columns([
+        pl.lit("Moon Walk").alias("Store_Std"),
+        pl.lit(0).cast(pl.Int32).alias("Route #"),
+        pl.lit(0).cast(pl.Int32).alias("IsBusinessAccount"),
+        pl.lit("Legacy").alias("Source_System"),
+    ])
 
-    df_legacy_clean = legacy_grouped[final_cols].copy()
-    logger.info(f"  [OK] Processed {len(df_legacy_clean):,} unique Legacy customers")
+    df_legacy_clean = legacy_grouped.select(final_cols)
+    logger.info(f"  [OK] Processed {df_legacy_clean.height:,} unique Legacy customers")
 
     # =====================================================================
     # PHASE 3: COMBINE & OUTPUT
     # =====================================================================
     logger.info("\nPhase 3: Combining CC and Legacy customers...")
 
-    df_all = pd.concat([df_cc_clean, df_legacy_clean], ignore_index=True)
-    logger.info(f"  [OK] Combined: {len(df_all):,} total customers")
+    df_all = pl.concat([df_cc_clean, df_legacy_clean], how="diagonal_relaxed")
+    logger.info(f"  [OK] Combined: {df_all.height:,} total customers")
 
-    # Format dates as DD-Mon-YYYY for PowerQuery (unambiguous, no locale issues)
-    df_all = format_dates_for_csv(df_all, ['SignedUp_Date', 'CohortMonth'])
+    # Format dates
+    df_all = polars_format_dates_for_csv(df_all, ['SignedUp_Date', 'CohortMonth'])
 
     # Sort
-    df_all = df_all.sort_values('CustomerID_Std').reset_index(drop=True)
+    df_all = df_all.sort("CustomerID_Std")
 
     # Save
-    df_all.to_csv(output_path, index=False, encoding='utf-8')
+    df_all.write_csv(output_path)
     logger.info(f"  [OK] Saved to: {output_path}")
 
     # =====================================================================
@@ -182,22 +195,21 @@ def run(shared_data: Optional[Dict[str, pd.DataFrame]] = None) -> Tuple[pd.DataF
     logger.info("=" * 70)
 
     logger.info(f"\nCustomer Counts:")
-    logger.info(f"  CC Customers:                {(df_all['Source_System'] == 'CC_2025').sum():>8,}")
-    logger.info(f"  Legacy Customers:            {(df_all['Source_System'] == 'Legacy').sum():>8,}")
+    logger.info(f"  CC Customers:                {df_all.filter(pl.col('Source_System') == 'CC_2025').height:>8,}")
+    logger.info(f"  Legacy Customers:            {df_all.filter(pl.col('Source_System') == 'Legacy').height:>8,}")
     logger.info(f"  {'-' * 40}")
-    logger.info(f"  TOTAL:                       {len(df_all):>8,}")
+    logger.info(f"  TOTAL:                       {df_all.height:>8,}")
 
     logger.info(f"\nStore Distribution:")
-    for store in df_all['Store_Std'].unique():
-        count = (df_all['Store_Std'] == store).sum()
-        pct = count / len(df_all) * 100
-        logger.info(f"  {store:<20}: {count:>6,} ({pct:>5.1f}%)")
+    for row in df_all.group_by("Store_Std").len().sort("Store_Std").iter_rows():
+        pct = row[1] / df_all.height * 100
+        logger.info(f"  {row[0]:<20}: {row[1]:>6,} ({pct:>5.1f}%)")
 
-    business_count = df_all['IsBusinessAccount'].sum()
-    logger.info(f"\nBusiness Accounts:           {business_count:>8,} ({business_count/len(df_all)*100:>5.1f}%)")
+    business_count = df_all.filter(pl.col("IsBusinessAccount") == 1).height
+    logger.info(f"\nBusiness Accounts:           {business_count:>8,} ({business_count/df_all.height*100:>5.1f}%)")
 
-    null_names = df_all['CustomerName'].isna().sum()
-    null_cohort = (df_all['CohortMonth'] == '').sum()
+    null_names = df_all.filter(pl.col("CustomerName").is_null()).height
+    null_cohort = df_all.filter(pl.col("CohortMonth") == "").height
     logger.info(f"  Null names:                  {null_names:>8,}")
     logger.info(f"  Null cohorts:                {null_cohort:>8,}")
 

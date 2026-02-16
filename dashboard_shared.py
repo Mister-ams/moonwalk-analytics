@@ -8,6 +8,9 @@ trend chart rendering, global CSS injection, and month selector.
 import streamlit as st
 import duckdb
 import plotly.graph_objects as go
+import time
+import json
+import logging
 from datetime import datetime, date
 from pathlib import Path
 
@@ -15,7 +18,22 @@ from pathlib import Path
 # DATA PATHS (centralized in config.py)
 # =====================================================================
 
-from config import SALES_CSV, ITEMS_CSV, DIMPERIOD_CSV, DB_PATH
+from config import SALES_CSV, ITEMS_CSV, DIMPERIOD_CSV, DB_PATH, LOGS_PATH
+
+_dash_logger = logging.getLogger("dashboard.profiling")
+
+
+def _log_query_time(func_name: str, elapsed: float, periods: int = 0) -> None:
+    """Log query timing for dashboard profiling."""
+    _dash_logger.debug(f"[QUERY] {func_name}: {elapsed:.3f}s ({periods} periods)")
+
+
+def write_dashboard_profile(timings: dict) -> None:
+    """Write dashboard profiling results to JSON (called once per session)."""
+    LOGS_PATH.mkdir(parents=True, exist_ok=True)
+    profile_path = LOGS_PATH / f"dashboard_profile_{datetime.now():%Y-%m-%d_%H%M%S}.json"
+    profile = {"timestamp": datetime.now().isoformat(), "queries": timings}
+    profile_path.write_text(json.dumps(profile, indent=2))
 
 # =====================================================================
 # DIRHAM SYMBOL (CBUAE official SVG, base64-encoded for inline use)
@@ -541,6 +559,7 @@ def fetch_measures(con, period):
 @st.cache_data(ttl=300)
 def fetch_measures_batch(_con, periods_tuple):
     """Fetch all measures for multiple periods in 4 batched SQL queries."""
+    _t0 = time.perf_counter()
     periods = list(periods_tuple)
     ctx = get_grain_context(periods)
     period_col, sales_join = ctx["period_col"], ctx["sales_join"]
@@ -633,6 +652,7 @@ def fetch_measures_batch(_con, periods_tuple):
             "deliveries": deliveries, "pickups": pickups,
             "stops": deliveries + pickups,
         }
+    _log_query_time("fetch_measures_batch", time.perf_counter() - _t0, len(periods))
     return result
 
 
@@ -904,6 +924,7 @@ def period_selector(con, show_title=True):
     weekly_mode = selected_grain == "Weekly"
     st.session_state["_weekly_persist"] = weekly_mode
 
+    _ps_t0 = time.perf_counter()
     if weekly_mode:
         periods_df = con.execute("""
             SELECT DISTINCT p.ISOWeekLabel
@@ -928,6 +949,7 @@ def period_selector(con, show_title=True):
             st.error("No data found.")
             st.stop()
         available_periods = periods_df["YearMonth"].tolist()
+    _log_query_time("period_selector", time.perf_counter() - _ps_t0)
 
     period_labels = [format_period_label(p) for p in available_periods]
     label_to_period = dict(zip(period_labels, available_periods))
