@@ -15,32 +15,42 @@ _SCRIPT_DIR = Path(__file__).resolve().parent        # PythonScript/
 _DATA_DIR   = _SCRIPT_DIR.parent                     # Moonwalk Data/
 
 # =====================================================================
+# CLOUD DETECTION
+# =====================================================================
+
+IS_CLOUD = bool(os.environ.get("STREAMLIT_CLOUD")) or not (Path.home() / "Downloads").exists()
+
+# =====================================================================
 # PATHS (override via env vars for portability)
 # =====================================================================
 
 _HOME = Path.home()
 
-DOWNLOADS_PATH = Path(
-    os.environ.get("MOONWALK_DOWNLOADS", str(_HOME / "Downloads"))
-)
-
-LOCAL_STAGING_PATH = Path(
-    os.environ.get("MOONWALK_STAGING", str(_HOME / "Downloads" / "Lime Reporting"))
-)
-
-ONEDRIVE_SALES_DATA_PATH = Path(
-    os.environ.get("MOONWALK_ONEDRIVE_DATA", str(_DATA_DIR / "Sales Data"))
-)
-
-PYTHON_SCRIPT_FOLDER = Path(
-    os.environ.get("MOONWALK_SCRIPTS", str(_SCRIPT_DIR))
-)
+if IS_CLOUD:
+    DOWNLOADS_PATH = _SCRIPT_DIR
+    LOCAL_STAGING_PATH = _SCRIPT_DIR
+    ONEDRIVE_SALES_DATA_PATH = _SCRIPT_DIR
+    PYTHON_SCRIPT_FOLDER = _SCRIPT_DIR
+    DB_PATH = _SCRIPT_DIR / "analytics.duckdb"
+else:
+    DOWNLOADS_PATH = Path(
+        os.environ.get("MOONWALK_DOWNLOADS", str(_HOME / "Downloads"))
+    )
+    LOCAL_STAGING_PATH = Path(
+        os.environ.get("MOONWALK_STAGING", str(_HOME / "Downloads" / "Lime Reporting"))
+    )
+    ONEDRIVE_SALES_DATA_PATH = Path(
+        os.environ.get("MOONWALK_ONEDRIVE_DATA", str(_DATA_DIR / "Sales Data"))
+    )
+    PYTHON_SCRIPT_FOLDER = Path(
+        os.environ.get("MOONWALK_SCRIPTS", str(_SCRIPT_DIR))
+    )
+    DB_PATH = _DATA_DIR / "analytics.duckdb"
 
 # Derived file paths
 SALES_CSV     = str(LOCAL_STAGING_PATH / "All_Sales_Python.csv")
 ITEMS_CSV     = str(LOCAL_STAGING_PATH / "All_Items_Python.csv")
 DIMPERIOD_CSV = str(LOCAL_STAGING_PATH / "DimPeriod_Python.csv")
-DB_PATH       = _DATA_DIR / "analytics.duckdb"
 
 # =====================================================================
 # ENVIRONMENT
@@ -52,7 +62,7 @@ MOONWALK_ENV = os.environ.get("MOONWALK_ENV", "production")  # production | deve
 # LOGGING CONFIGURATION
 # =====================================================================
 
-LOGS_PATH = _DATA_DIR / "logs"
+LOGS_PATH = (_SCRIPT_DIR / "logs") if IS_CLOUD else (_DATA_DIR / "logs")
 LOG_LEVEL = os.environ.get(
     "MOONWALK_LOG_LEVEL",
     "DEBUG" if MOONWALK_ENV == "development" else "INFO",

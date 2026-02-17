@@ -5,10 +5,21 @@ import polars as pl
 from datetime import date, datetime
 from pathlib import Path
 
+import duckdb
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import LOCAL_STAGING_PATH
+
+
+# ── Bare DuckDB (for TRY_CAST edge cases) ────────────────────────────
+
+@pytest.fixture
+def raw_duckdb():
+    """Bare in-memory DuckDB for TRY_CAST edge case testing."""
+    con = duckdb.connect(":memory:")
+    yield con
+    con.close()
 
 
 # ── Sample DataFrames ────────────────────────────────────────────────

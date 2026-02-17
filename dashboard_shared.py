@@ -30,10 +30,13 @@ def _log_query_time(func_name: str, elapsed: float, periods: int = 0) -> None:
 
 def write_dashboard_profile(timings: dict) -> None:
     """Write dashboard profiling results to JSON (called once per session)."""
-    LOGS_PATH.mkdir(parents=True, exist_ok=True)
-    profile_path = LOGS_PATH / f"dashboard_profile_{datetime.now():%Y-%m-%d_%H%M%S}.json"
-    profile = {"timestamp": datetime.now().isoformat(), "queries": timings}
-    profile_path.write_text(json.dumps(profile, indent=2))
+    try:
+        LOGS_PATH.mkdir(parents=True, exist_ok=True)
+        profile_path = LOGS_PATH / f"dashboard_profile_{datetime.now():%Y-%m-%d_%H%M%S}.json"
+        profile = {"timestamp": datetime.now().isoformat(), "queries": timings}
+        profile_path.write_text(json.dumps(profile, indent=2))
+    except (OSError, PermissionError):
+        pass  # Skip profiling on read-only filesystem (cloud)
 
 # =====================================================================
 # DIRHAM SYMBOL (CBUAE official SVG, base64-encoded for inline use)
@@ -437,10 +440,13 @@ def get_connection():
                     raise RuntimeError(f"Table '{required}' missing from {db_file.name}")
             # Create order_lookup if missing (backward compat with older DB files)
             if "order_lookup" not in tables:
-                con.execute("""
-                    CREATE TABLE order_lookup AS
-                    SELECT DISTINCT OrderID_Std, IsSubscriptionService FROM sales
-                """)
+                try:
+                    con.execute("""
+                        CREATE TABLE order_lookup AS
+                        SELECT DISTINCT OrderID_Std, IsSubscriptionService FROM sales
+                    """)
+                except Exception:
+                    pass  # Read-only DB on cloud — order_lookup should be pre-built
             return con
         except Exception as e:
             st.warning(f"Could not open {db_file.name}: {e}. Falling back to CSV.")

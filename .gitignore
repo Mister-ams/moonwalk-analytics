@@ -1,3 +1,42 @@
 __pycache__/
 *.pyc
 *.pyo
+
+# Environment
+.env
+.venv/
+.vscode/
+.idea/
+
+# Tool caches
+.ruff_cache/
+.pytest_cache/
+
+# Logs
+logs/
+
+# DuckDB temp files (but NOT analytics.duckdb itself — tracked for cloud)
+*.duckdb.tmp
+*.duckdb.wal
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# ETL output files (generated, not tracked)
+All_Sales_Python.csv
+All_Sales_Python.parquet
+All_Customers_Python.csv
+All_Customers_Python.parquet
+All_Items_Python.csv
+All_Items_Python.parquet
+Customer_Quality_Monthly_Python.csv
+Customer_Quality_Monthly_Python.parquet
+DimPeriod_Python.csv
+DimPeriod_Python.parquet
+
+# Golden baselines (local testing only)
+golden_baselines/
+
+# Windows shortcuts
+*.lnk

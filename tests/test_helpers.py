@@ -504,3 +504,92 @@ class TestFindCleancloudFile:
     def test_missing_optional(self, tmp_path):
         result = find_cleancloud_file("orders", downloads_path=str(tmp_path), required=False)
         assert result is None
+
+
+# =====================================================================
+# Empty DataFrame edge cases
+# =====================================================================
+
+class TestEmptyDataFrameEdgeCases:
+    def test_to_date_empty(self):
+        df = pl.DataFrame({"d": []}, schema={"d": pl.Utf8})
+        result = polars_to_date(df, "d")
+        assert result.height == 0
+        assert "d" in result.columns
+
+    def test_store_std_empty(self):
+        df = pl.DataFrame({"sid": []}, schema={"sid": pl.Utf8})
+        result = df.select(polars_store_std("sid").alias("store"))
+        assert result.height == 0
+
+    def test_subscription_flag_empty_orders(self):
+        df = pl.DataFrame(
+            {"CustomerID_Std": [], "Earned_Date": [], "Transaction_Type": [], "OrderID_Std": []},
+            schema={
+                "CustomerID_Std": pl.Utf8, "Earned_Date": pl.Datetime("us"),
+                "Transaction_Type": pl.Utf8, "OrderID_Std": pl.Utf8,
+            },
+        )
+        result = polars_subscription_flag(df, {})
+        assert result.height == 0
+        assert "IsSubscriptionService" in result.columns
+
+    def test_subscription_flag_null_earned_date(self):
+        df = pl.DataFrame({
+            "CustomerID_Std": ["CC-0001"],
+            "Earned_Date": [None],
+            "Transaction_Type": ["Order"],
+            "OrderID_Std": ["M-00001"],
+        }, schema={
+            "CustomerID_Std": pl.Utf8, "Earned_Date": pl.Datetime("us"),
+            "Transaction_Type": pl.Utf8, "OrderID_Std": pl.Utf8,
+        })
+        sub_dict = {
+            "CC-0001": [{"ValidFrom": datetime(2025, 1, 1), "ValidUntil": datetime(2025, 1, 31)}],
+        }
+        result = polars_subscription_flag(df, sub_dict)
+        assert result["IsSubscriptionService"][0] == 0
+
+    def test_validate_output_empty(self):
+        df = pl.DataFrame(
+            {"CustomerID_Std": [], "OrderCohortMonth": []},
+            schema={"CustomerID_Std": pl.Utf8, "OrderCohortMonth": pl.Datetime("us")},
+        )
+        result = polars_validate_output(df, "empty_test")
+        assert result["passed"] is True
+
+    def test_name_standardize_empty(self):
+        df = pl.DataFrame({"n": []}, schema={"n": pl.Utf8})
+        result = df.select(polars_name_standardize(pl.col("n")).alias("s"))
+        assert result.height == 0
+
+    def test_format_dates_csv_empty(self):
+        df = pl.DataFrame({"d": []}, schema={"d": pl.Datetime("us")})
+        result = polars_format_dates_for_csv(df, ["d"])
+        assert result.height == 0
+
+    def test_item_category_all_null(self):
+        df = pl.DataFrame({"Item": [None], "Section": [None]})
+        result = df.select(polars_item_category().alias("cat"))
+        assert result["cat"][0] == "Others"
+
+    def test_service_type_all_null(self):
+        df = pl.DataFrame({"Section": [None]})
+        result = df.select(polars_service_type().alias("svc"))
+        assert result["svc"][0] == "Other Service"
+
+    def test_subscription_flag_covered_but_null_date(self):
+        df = pl.DataFrame({
+            "CustomerID_Std": ["CC-0001"],
+            "Earned_Date": [None],
+            "Transaction_Type": ["Order"],
+            "OrderID_Std": ["M-00010"],
+        }, schema={
+            "CustomerID_Std": pl.Utf8, "Earned_Date": pl.Datetime("us"),
+            "Transaction_Type": pl.Utf8, "OrderID_Std": pl.Utf8,
+        })
+        sub_dict = {
+            "CC-0001": [{"ValidFrom": datetime(2025, 1, 1), "ValidUntil": datetime(2025, 2, 28)}],
+        }
+        result = polars_subscription_flag(df, sub_dict)
+        assert result["IsSubscriptionService"][0] == 0
