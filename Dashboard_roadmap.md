@@ -1,7 +1,7 @@
 # Moonwalk Analytics — Master Project Roadmap
 
 **Created:** 16 February 2026
-**Last updated:** 17 February 2026 (v5.1 — Tick 6A complete)
+**Last updated:** 17 February 2026 (v5.2 — Tock 7 + Tick 6B complete)
 **Pattern:** Tick-tock within phases; phases aligned to OS v1.0 execution plan
 
 ---
@@ -40,7 +40,9 @@ This roadmap serves the **analytics layer** of the SME Internal Operating System
 | Tock Polars | Quality | Full ETL pandas-to-Polars: 8.75x speedup (7s to 0.8s), 16x less memory |
 | Tock 5 | Quality | 82 tests, PS hardening, `refresh_cli.py`, `pyproject.toml` |
 | Tock 6 | Quality | Data integrity: subscription overlap merge, CohortMonth validation, TRY_CAST logging, ENUM pre-validation, Polars join idioms. 93 tests. |
-| **Tick 6A** | **Feature** | **Dashboard polish: sidebar regrouped to 4 sections, period selector SQL cached in session state, CohortMonth null filter fixed, stops.py references removed, docstrings added. 12 pages.** |
+| Tick 6A | Feature | Dashboard polish: sidebar regrouped to 4 sections, period selector SQL cached in session state, CohortMonth null filter fixed, stops.py references removed, docstrings added. 12 pages. |
+| Tock 7 | Quality | Test coverage expansion: 93 → 145 tests. TRY_CAST edge cases (19), order_lookup consistency (3), empty DataFrame (10), Playwright smoke tests (23). |
+| **Tick 6B** | **Feature** | **Streamlit Cloud deployment. `IS_CLOUD` config detection, cloud-resilient logging/profiling, `analytics.duckdb` in repo (11MB), `requirements.txt`, `.streamlit/config.toml`. GitHub: `Mister-ams/moonwalk-analytics` (public).** |
 
 ### Items Resolved (Previously Listed as Open)
 
@@ -118,49 +120,53 @@ Deep review of all 39 files (9,200 LOC) identified issues across every layer:
 
 ---
 
-### Tick 6B — Notion Portal
+### Tick 6B — Cloud Deployment + Notion Portal — COMPLETED 2026-02-17
 
-**Focus:** Connect Streamlit dashboard via Notion portal.
-**Scope:** Notion workspace, deployment. No code changes.
+**Focus:** Deploy dashboard to Streamlit Community Cloud, connect via Notion portal.
+**Scope:** Config changes, cloud resilience, GitHub repo, Streamlit Cloud.
 
-| # | Item | Source | Effort |
+| # | Item | Source | Status |
 |---|------|--------|--------|
-| 6.9 | **Set up Notion workspace as portal layer** | OS v1.0 POC | 2-3 hrs |
-| 6.10 | **Embed/link Streamlit dashboards from Notion** | OS v1.0 POC | 1-2 hrs |
-| 6.11 | **Dashboard deployment for portal access** | OS v1.0 POC | 2-3 hrs |
+| 6.9 | **Cloud-ready config** (`IS_CLOUD`, resilient logging/profiling) | Sprint plan | Done |
+| 6.10 | **GitHub repo + Streamlit Cloud deploy** | Sprint plan | Done — `Mister-ams/moonwalk-analytics` (public) |
+| 6.11 | **Notion portal setup** | OS v1.0 POC | Pending (manual) |
 
-**Details:**
-
-**6.9 — Notion Portal**
-Set up Notion workspace with:
-- Company overview / navigation hub
-- Links to Streamlit dashboard sections (Monthly Report, Customer Intelligence, Operations, Financials)
-- Embedded dashboard previews where Notion supports iframe/embed
-- SOPs for data refresh and dashboard usage
-
-**6.11 — Dashboard Deployment**
-For the Notion portal to link to the dashboard, Streamlit needs to be accessible beyond localhost. Options:
-- **Local network:** `streamlit run --server.address 0.0.0.0` (accessible from any device on same network)
-- **Streamlit Community Cloud:** Free hosting, links directly from Notion (requires GitHub repo)
-- **Cloud VM:** Azure/AWS instance running Streamlit (more control, costs $5-20/month)
-
-The choice depends on who needs access and from where.
+**Data refresh workflow:**
+1. Download CSVs from CleanCloud
+2. Run ETL: `python cleancloud_to_excel_MASTER.py`
+3. Rebuild DuckDB: `python cleancloud_to_duckdb.py`
+4. Push: `cp ../analytics.duckdb . && git add analytics.duckdb && git commit -m "Refresh data" && git push`
+5. Streamlit Cloud auto-redeploys (~1 min)
 
 ---
 
-### Tock 7 — Testing & Quality
+### Tock 7 — Testing & Quality — COMPLETED 2026-02-17
 
 **Focus:** Close test coverage gaps before expanding features.
-**Scope:** New tests, minor code quality improvements.
+**Scope:** 52 new tests (93 → 145 total).
 
-| # | Item | Current | Target | Effort |
-|---|------|---------|--------|--------|
-| 7.1 | **TRY_CAST edge case tests** | 0 | Tests for invalid dates, unexpected ENUMs, empty tables | 2-3 hrs |
-| 7.2 | **order_lookup value consistency test** | Count-only | Value-level IsSubscriptionService match | 1 hr |
-| 7.3 | **Empty DataFrame edge cases** | 0 | ETL and dashboard behavior on empty/null data | 2 hrs |
-| 7.4 | **Dashboard Playwright smoke tests** | 0 | 13 page load + period selector + navigation | 3-4 hrs |
-| 7.5 | **Centralize magic numbers in config.py** | Scattered | `infer_schema_length`, `zfill()` widths, NaT threshold, ID prefixes | 1-2 hrs |
-| 7.6 | **Remove unnecessary `.clone()` calls** | 5+ instances | Polars immutability makes these redundant | 30 min |
+| # | Item | Status |
+|---|------|--------|
+| 7.1 | **TRY_CAST edge case tests** (19 tests: DATE/BOOLEAN/SMALLINT/ENUM) | Done |
+| 7.2 | **order_lookup value consistency tests** (3 tests: value match, unique IDs, no nulls) | Done |
+| 7.3 | **Empty DataFrame edge cases** (10 tests: all ETL helpers) | Done |
+| 7.4 | **Dashboard Playwright smoke tests** (23 tests: all 12 pages, toggle, cards, charts) | Done |
+| 7.5 | **Centralize magic numbers** | Skipped — already centralized in `config.py` |
+| 7.6 | **Remove `.clone()` calls** | Skipped — all 8 calls justified (shared_data isolation) |
+
+---
+
+### Tock 7B — Security Investigation
+
+**Focus:** Investigate data encryption and access controls for the public-repo Streamlit deployment.
+**Scope:** Research and implementation plan. May produce code changes or architectural recommendations.
+
+| # | Item | Details | Effort |
+|---|------|---------|--------|
+| 7B.1 | **DuckDB encryption at rest** | Investigate DuckDB's built-in encryption, or encrypting the `.duckdb` file before pushing to GitHub. Evaluate trade-offs (key management, Streamlit Cloud compatibility). | 2-3 hrs |
+| 7B.2 | **Streamlit authentication** | Evaluate `st-login-form`, Streamlit's built-in auth (if available), OAuth proxy, or password-gating via `st.secrets`. | 2-3 hrs |
+| 7B.3 | **Sensitive data audit** | Catalog what's in `analytics.duckdb`: customer names, revenue figures, order details. Determine what needs protection vs. what's acceptable in a public repo. | 1-2 hrs |
+| 7B.4 | **Access control recommendation** | Produce a decision document: recommended approach for auth + encryption given the current stack (Streamlit Cloud free tier, public GitHub, DuckDB). | 1-2 hrs |
 
 ---
 
@@ -321,7 +327,8 @@ CleanCloud CSV (manual download)
 
 Orchestration: Prefect (replaces PowerShell)
 Development: Claude Code
-Tests: 93 (pytest — 61 unit + 10 SQL + 17 integration + 5 golden baseline)
+Tests: 145 (pytest — 60 unit + 29 integration + 23 Playwright + 17 transform + 5 golden baseline)
+Deployment: Streamlit Community Cloud (auto-deploy on push)
 ```
 
 ### Post-Migration Stack (Single Postgres)
@@ -361,10 +368,12 @@ Development: Claude Code
 DONE
 ├── Tock 6: 3 CRITICAL + 2 HIGH data integrity fixes (2026-02-17)
 ├── Tick 6A: Dashboard polish — sidebar, caching, quick wins (2026-02-17)
+├── Tock 7: Test coverage 93 → 145 (TRY_CAST, Playwright, edge cases) (2026-02-17)
+├── Tick 6B: Streamlit Cloud deploy + cloud-ready config (2026-02-17)
 │
 NOW (POC — validate full app experience on DuckDB)
-├── Tick 6B: Notion portal setup + dashboard deployment
-├── Tock 7: Test coverage + quality cleanup
+├── Tick 6.11: Notion portal setup (manual)
+├── Tock 7B: Security — data encryption + Streamlit access controls investigation
 ├── Tick 7: New reporting features (YoY, RFM, churn)
 ├── Tick 8: Appsmith operational UI + lightweight FastAPI (on DuckDB)
 └── Tick 9: Prefect orchestration (replaces PowerShell)
