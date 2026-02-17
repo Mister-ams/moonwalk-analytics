@@ -364,6 +364,7 @@ METRIC_CONFIG = {
 # =====================================================================
 
 def fmt_count(v):
+    """Format numeric value with thousand separators."""
     return f"{v:,}"
 
 
@@ -378,7 +379,7 @@ def fmt_ratio(v):
 
 
 def fmt_dhs(v):
-    """Main card: Dirham SVG sized to match 2rem text (~28px)."""
+    """Format Dirham value with inline SVG symbol for main card display (~28px)."""
     return (
         f'<img src="data:image/svg+xml;base64,{_DIRHAM_B64}" '
         f'style="height:1.6rem;vertical-align:baseline;margin-right:0.25rem;" '
@@ -387,7 +388,7 @@ def fmt_dhs(v):
 
 
 def fmt_dhs_sub(v):
-    """Sub-card: Dirham SVG sized to match 1.4rem text (~20px), 80% ratio."""
+    """Format Dirham value with inline SVG symbol for sub-metric rows (~20px)."""
     return (
         f'<img src="data:image/svg+xml;base64,{_DIRHAM_B64}" '
         f'style="height:1.12rem;vertical-align:baseline;margin-right:0.2rem;" '
@@ -924,32 +925,36 @@ def period_selector(con, show_title=True):
     weekly_mode = selected_grain == "Weekly"
     st.session_state["_weekly_persist"] = weekly_mode
 
-    _ps_t0 = time.perf_counter()
-    if weekly_mode:
-        periods_df = con.execute("""
-            SELECT DISTINCT p.ISOWeekLabel
-            FROM sales s
-            JOIN dim_period p ON s.Earned_Date = p.Date
-            WHERE s.Earned_Date IS NOT NULL
-            ORDER BY p.ISOWeekLabel
-        """).df()
-        if len(periods_df) == 0:
-            st.error("No data found.")
-            st.stop()
-        available_periods = periods_df["ISOWeekLabel"].tolist()
-    else:
-        periods_df = con.execute("""
-            SELECT DISTINCT p.YearMonth
-            FROM sales s
-            JOIN dim_period p ON s.OrderCohortMonth = p.Date
-            WHERE s.Earned_Date IS NOT NULL
-            ORDER BY p.YearMonth
-        """).df()
-        if len(periods_df) == 0:
-            st.error("No data found.")
-            st.stop()
-        available_periods = periods_df["YearMonth"].tolist()
-    _log_query_time("period_selector", time.perf_counter() - _ps_t0)
+    # Cache period lists in session state (clears on browser refresh)
+    cache_key = "_cached_periods_weekly" if weekly_mode else "_cached_periods_monthly"
+    if cache_key not in st.session_state:
+        _ps_t0 = time.perf_counter()
+        if weekly_mode:
+            periods_df = con.execute("""
+                SELECT DISTINCT p.ISOWeekLabel
+                FROM sales s
+                JOIN dim_period p ON s.Earned_Date = p.Date
+                WHERE s.Earned_Date IS NOT NULL
+                ORDER BY p.ISOWeekLabel
+            """).df()
+            if len(periods_df) == 0:
+                st.error("No data found.")
+                st.stop()
+            st.session_state[cache_key] = periods_df["ISOWeekLabel"].tolist()
+        else:
+            periods_df = con.execute("""
+                SELECT DISTINCT p.YearMonth
+                FROM sales s
+                JOIN dim_period p ON s.OrderCohortMonth = p.Date
+                WHERE s.Earned_Date IS NOT NULL
+                ORDER BY p.YearMonth
+            """).df()
+            if len(periods_df) == 0:
+                st.error("No data found.")
+                st.stop()
+            st.session_state[cache_key] = periods_df["YearMonth"].tolist()
+        _log_query_time("period_selector", time.perf_counter() - _ps_t0)
+    available_periods = st.session_state[cache_key]
 
     period_labels = [format_period_label(p) for p in available_periods]
     label_to_period = dict(zip(period_labels, available_periods))

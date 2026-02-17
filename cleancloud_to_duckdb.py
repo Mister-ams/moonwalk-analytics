@@ -34,6 +34,33 @@ _profile_entries = []
 
 CSV_FOLDER = LOCAL_STAGING_PATH
 
+def _count_meaningful_values(conn, table: str, col: str) -> int:
+    """Count non-null, non-empty-string values (meaningful data before cast)."""
+    return conn.execute(
+        f"""SELECT COUNT(*) FROM {table}
+        WHERE "{col}" IS NOT NULL AND CAST("{col}" AS VARCHAR) != ''"""
+    ).fetchone()[0]
+
+
+def _count_non_null(conn, table: str, col: str) -> int:
+    """Count non-null values (after type cast)."""
+    return conn.execute(
+        f'SELECT COUNT(*) FROM {table} WHERE "{col}" IS NOT NULL'
+    ).fetchone()[0]
+
+
+def _log_cast_loss(conn, table: str, col: str, pre_meaningful: int, cast_type: str) -> None:
+    """Compare pre-cast meaningful values vs post-cast non-null; warn on actual data loss."""
+    post_non_null = _count_non_null(conn, table, col)
+    lost = pre_meaningful - post_non_null
+    if lost > 0:
+        total = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        pct = lost / total * 100 if total > 0 else 0
+        logger.warning(
+            f"    [WARN] TRY_CAST {table}.{col} to {cast_type}: "
+            f"{lost} non-empty values failed to parse ({pct:.2f}%)"
+        )
+
 # CSV files to load
 CSV_FILES = {
     'sales': 'All_Sales_Python.csv',
@@ -203,10 +230,12 @@ def create_database():
     for table_name, columns in DATE_COLUMNS.items():
         for col in columns:
             try:
+                pre_meaningful = _count_meaningful_values(conn, table_name, col)
                 conn.execute(
                     f'ALTER TABLE {table_name} ALTER COLUMN "{col}" '
                     f'SET DATA TYPE DATE USING TRY_CAST("{col}" AS DATE)'
                 )
+                _log_cast_loss(conn, table_name, col, pre_meaningful, "DATE")
             except Exception as e:
                 logger.info(f"    [WARN] Could not cast {table_name}.{col}: {str(e)[:60]}")
     _profile_entries.append({"phase": "cast_dates", "elapsed_s": round((datetime.now() - _cast_start).total_seconds(), 3)})
@@ -220,10 +249,12 @@ def create_database():
     for table_name, columns in BOOL_COLUMNS.items():
         for col in columns:
             try:
+                pre_meaningful = _count_meaningful_values(conn, table_name, col)
                 conn.execute(
                     f'ALTER TABLE {table_name} ALTER COLUMN "{col}" '
                     f'SET DATA TYPE BOOLEAN USING TRY_CAST("{col}" AS BOOLEAN)'
                 )
+                _log_cast_loss(conn, table_name, col, pre_meaningful, "BOOLEAN")
                 bool_count += 1
             except Exception as e:
                 logger.info(f"    [WARN] Could not cast {table_name}.{col}: {str(e)[:60]}")
@@ -238,10 +269,12 @@ def create_database():
     for table_name, col_types in INT_COLUMNS.items():
         for col, target_type in col_types.items():
             try:
+                pre_meaningful = _count_meaningful_values(conn, table_name, col)
                 conn.execute(
                     f'ALTER TABLE {table_name} ALTER COLUMN "{col}" '
                     f'SET DATA TYPE {target_type} USING TRY_CAST("{col}" AS {target_type})'
                 )
+                _log_cast_loss(conn, table_name, col, pre_meaningful, target_type)
                 int_count += 1
             except Exception as e:
                 logger.info(f"    [WARN] Could not cast {table_name}.{col}: {str(e)[:60]}")
@@ -271,6 +304,18 @@ def create_database():
     created_enums = set()
     for table_name, col_defs in ENUM_COLUMNS.items():
         for col, values in col_defs.items():
+            # Pre-load validation: detect unknown values in source data
+            actual_values = conn.execute(
+                f'SELECT DISTINCT "{col}" FROM {table_name} WHERE "{col}" IS NOT NULL'
+            ).fetchall()
+            actual_set = {row[0] for row in actual_values}
+            expected_set = set(values)
+            unknown = actual_set - expected_set
+            if unknown:
+                logger.warning(
+                    f"    [WARN] {table_name}.{col} has unknown values not in ENUM spec: {unknown}"
+                )
+
             # Use a shared ENUM name so identical types are reused across tables
             enum_name = f"enum_{col.lower()}"
             if enum_name not in created_enums:
@@ -278,10 +323,12 @@ def create_database():
                 conn.execute(f"CREATE TYPE {enum_name} AS ENUM ({values_sql})")
                 created_enums.add(enum_name)
             try:
+                pre_meaningful = _count_meaningful_values(conn, table_name, col)
                 conn.execute(
                     f'ALTER TABLE {table_name} ALTER COLUMN "{col}" '
                     f'SET DATA TYPE {enum_name} USING TRY_CAST("{col}" AS {enum_name})'
                 )
+                _log_cast_loss(conn, table_name, col, pre_meaningful, enum_name)
                 enum_count += 1
             except Exception as e:
                 logger.info(f"    [WARN] Could not cast {table_name}.{col} to ENUM: {str(e)[:60]}")

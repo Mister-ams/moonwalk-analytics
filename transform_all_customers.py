@@ -209,7 +209,7 @@ def run(shared_data: Optional[Dict[str, Union[pl.DataFrame]]] = None) -> Tuple[p
     logger.info(f"\nBusiness Accounts:           {business_count:>8,} ({business_count/df_all.height*100:>5.1f}%)")
 
     null_names = df_all.filter(pl.col("CustomerName").is_null()).height
-    null_cohort = df_all.filter(pl.col("CohortMonth") == "").height
+    null_cohort = df_all.filter(pl.col("CohortMonth").is_null()).height
     logger.info(f"  Null names:                  {null_names:>8,}")
     logger.info(f"  Null cohorts:                {null_cohort:>8,}")
 

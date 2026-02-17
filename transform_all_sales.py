@@ -76,10 +76,10 @@ def run(shared_data: Optional[Dict[str, Union[pl.DataFrame]]] = None) -> Tuple[p
             .alias("cust_std"),
     ]).filter(pl.col("name_std") != "")
     name_df = name_df.unique(subset="name_std", keep="first")
-    customer_name_lookup = dict(zip(
-        name_df["name_std"].to_list(),
-        name_df["cust_std"].to_list()
-    ))
+    name_lookup_df = name_df.select([
+        pl.col("name_std"),
+        pl.col("cust_std"),
+    ])
 
     # All_Customers (for CohortMonth + Route)
     if shared_data and 'all_customers_df' in shared_data:
@@ -94,14 +94,11 @@ def run(shared_data: Optional[Dict[str, Union[pl.DataFrame]]] = None) -> Tuple[p
     if df_all_customers["CohortMonth"].dtype == pl.Utf8:
         df_all_customers = polars_to_date(df_all_customers, "CohortMonth")
 
-    customer_cohort = dict(zip(
-        df_all_customers["CustomerID_Std"].to_list(),
-        df_all_customers["CohortMonth"].to_list()
-    ))
-    customer_route = dict(zip(
-        df_all_customers["CustomerID_Std"].to_list(),
-        df_all_customers["Route #"].cast(pl.Float64, strict=False).fill_null(0).to_list()
-    ))
+    customer_lookup_df = df_all_customers.select([
+        "CustomerID_Std",
+        pl.col("CohortMonth").alias("_lkp_CohortMonth"),
+        pl.col("Route #").cast(pl.Float64, strict=False).fill_null(0.0).alias("_lkp_Route"),
+    ]).unique(subset="CustomerID_Std", keep="first")
 
     logger.info(f"  [OK] Loaded {df_all_customers.height:,} total customers for lookup")
 
@@ -125,10 +122,12 @@ def run(shared_data: Optional[Dict[str, Union[pl.DataFrame]]] = None) -> Tuple[p
     df_subs = df_subs.with_columns(
         polars_name_standardize(pl.col("Customer")).alias("CustomerName_Std")
     )
-    # Map name -> CustomerID_Std
-    name_series = df_subs["CustomerName_Std"].to_list()
-    cid_mapped = [customer_name_lookup.get(n) for n in name_series]
-    df_subs = df_subs.with_columns(pl.Series("CustomerID_Std", cid_mapped))
+    # Map name -> CustomerID_Std via Polars join
+    df_subs = df_subs.join(
+        name_lookup_df.rename({"name_std": "CustomerName_Std", "cust_std": "CustomerID_Std"}),
+        on="CustomerName_Std",
+        how="left",
+    )
 
     df_subs = df_subs.with_columns([
         pl.col("Payment_Date").alias("ValidFrom"),
@@ -375,10 +374,12 @@ def run(shared_data: Optional[Dict[str, Union[pl.DataFrame]]] = None) -> Tuple[p
         .alias("_name_std")
     )
 
-    # Map name -> CustomerID_Std
-    name_std_list = df["_name_std"].to_list()
-    cid_lookup = [customer_name_lookup.get(n) if n else None for n in name_std_list]
-    df = df.with_columns(pl.Series("_cid_lookup", cid_lookup))
+    # Map name -> CustomerID_Std via Polars join
+    df = df.join(
+        name_lookup_df.rename({"name_std": "_name_std", "cust_std": "_cid_lookup"}),
+        on="_name_std",
+        how="left",
+    )
 
     # Overwrite CustomerID_Std for subs/invoices
     df = df.with_columns(
@@ -420,14 +421,23 @@ def run(shared_data: Optional[Dict[str, Union[pl.DataFrame]]] = None) -> Tuple[p
     # =====================================================================
     logger.info("\nPhase 10: Merging customer data...")
 
-    cid_list = df["CustomerID_Std"].to_list()
-    cohort_vals = [customer_cohort.get(c) for c in cid_list]
-    route_vals = [customer_route.get(c, 0.0) for c in cid_list]
-
+    df = df.join(customer_lookup_df, on="CustomerID_Std", how="left")
     df = df.with_columns([
-        pl.Series("CohortMonth", cohort_vals).cast(pl.Datetime("us"), strict=False),
-        pl.Series("Route #", route_vals).cast(pl.Float64),
-    ])
+        pl.col("_lkp_CohortMonth").cast(pl.Datetime("us"), strict=False).alias("CohortMonth"),
+        pl.col("_lkp_Route").fill_null(0.0).alias("Route #"),
+    ]).drop(["_lkp_CohortMonth", "_lkp_Route"])
+
+    # 6.2: CohortMonth null validation
+    null_cohort = df.filter(
+        pl.col("CohortMonth").is_null() & pl.col("Is_Earned").cast(pl.Boolean)
+    )
+    if null_cohort.height > 0:
+        null_pct = null_cohort.height / df.filter(pl.col("Is_Earned").cast(pl.Boolean)).height * 100
+        affected_ids = null_cohort["CustomerID_Std"].unique().to_list()[:20]
+        logger.warning(
+            f"  [WARN] {null_cohort.height:,} earned rows have NULL CohortMonth ({null_pct:.1f}%)"
+            f" — affected customers (up to 20): {affected_ids}"
+        )
 
     df = df.with_columns(polars_route_category("Route #").alias("Route_Category"))
 

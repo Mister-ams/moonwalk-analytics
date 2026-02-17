@@ -33,8 +33,8 @@ payments_page = st.Page("pages/payments.py", title="Payments")
 
 page = st.navigation(
     {
-        "Business Performance": [
-            overview, customers, items_page, revenues,
+        "Monthly Report": [overview, customers, items_page, revenues],
+        "Customer Intelligence": [
             ci_overview, customer_report, customer_report_revenue,
             new_customers_page, cohort_page,
         ],

@@ -382,6 +382,21 @@ def polars_months_since_cohort(order_month_col: str, cohort_month_col: str) -> p
 # SUBSCRIPTION FLAG
 # =====================================================================
 
+def _merge_overlapping_periods(periods: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Merge overlapping or adjacent subscription periods for a single customer."""
+    if len(periods) <= 1:
+        return periods
+    sorted_periods = sorted(periods, key=lambda p: p["ValidFrom"])
+    merged = [sorted_periods[0].copy()]
+    for p in sorted_periods[1:]:
+        last = merged[-1]
+        if p["ValidFrom"] <= last["ValidUntil"]:
+            last["ValidUntil"] = max(last["ValidUntil"], p["ValidUntil"])
+        else:
+            merged.append(p.copy())
+    return merged
+
+
 def polars_subscription_flag(
     df: pl.DataFrame,
     subscription_dict: Dict[str, List[Dict[str, Any]]],
@@ -405,9 +420,23 @@ def polars_subscription_flag(
     if not subscription_dict:
         return df
 
-    # Build subscription periods DataFrame
-    sub_records = []
+    # Merge overlapping periods per customer to prevent cartesian join explosion
+    merged_dict = {}
+    overlap_count = 0
     for cid, periods in subscription_dict.items():
+        merged = _merge_overlapping_periods(periods)
+        if len(merged) < len(periods):
+            overlap_count += len(periods) - len(merged)
+        merged_dict[cid] = merged
+
+    if overlap_count > 0:
+        logger.warning(
+            f"  [WARN] Merged {overlap_count} overlapping subscription periods"
+        )
+
+    # Build subscription periods DataFrame from merged periods
+    sub_records = []
+    for cid, periods in merged_dict.items():
         for p in periods:
             sub_records.append({
                 "CustomerID_Std": cid,

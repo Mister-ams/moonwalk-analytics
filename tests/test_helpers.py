@@ -22,6 +22,7 @@ from helpers import (
     polars_route_category,
     polars_months_since_cohort,
     polars_subscription_flag,
+    _merge_overlapping_periods,
     polars_format_dates_for_csv,
     polars_validate_output,
 )
@@ -305,6 +306,126 @@ class TestPolarsSubscriptionFlag:
         }
         result = polars_subscription_flag(df, sub_dict)
         assert result["IsSubscriptionService"][0] == 0
+
+    def test_overlapping_periods_still_covered(self):
+        """Order during overlapping subscription periods should be flagged."""
+        df = pl.DataFrame({
+            "CustomerID_Std": ["CC-0001"],
+            "Earned_Date": [datetime(2025, 1, 20)],
+            "Transaction_Type": ["Order"],
+            "OrderID_Std": ["M-00003"],
+        })
+        sub_dict = {
+            "CC-0001": [
+                {"ValidFrom": datetime(2025, 1, 1), "ValidUntil": datetime(2025, 1, 25)},
+                {"ValidFrom": datetime(2025, 1, 10), "ValidUntil": datetime(2025, 2, 10)},
+            ],
+        }
+        result = polars_subscription_flag(df, sub_dict)
+        assert result["IsSubscriptionService"][0] == 1
+
+    def test_adjacent_periods_not_merged(self):
+        """Non-overlapping periods should remain separate; gap order is uncovered."""
+        df = pl.DataFrame({
+            "CustomerID_Std": ["CC-0001"],
+            "Earned_Date": [datetime(2025, 2, 5)],
+            "Transaction_Type": ["Order"],
+            "OrderID_Std": ["M-00004"],
+        })
+        sub_dict = {
+            "CC-0001": [
+                {"ValidFrom": datetime(2025, 1, 1), "ValidUntil": datetime(2025, 1, 31)},
+                {"ValidFrom": datetime(2025, 3, 1), "ValidUntil": datetime(2025, 3, 31)},
+            ],
+        }
+        result = polars_subscription_flag(df, sub_dict)
+        assert result["IsSubscriptionService"][0] == 0
+
+    def test_empty_subscription_dict(self):
+        df = pl.DataFrame({
+            "CustomerID_Std": ["CC-0001"],
+            "Earned_Date": [datetime(2025, 1, 15)],
+            "Transaction_Type": ["Order"],
+            "OrderID_Std": ["M-00005"],
+        })
+        result = polars_subscription_flag(df, {})
+        assert result["IsSubscriptionService"][0] == 0
+
+    def test_subscription_ignores_non_orders(self):
+        """Subscription and Invoice Payment rows should not get flagged."""
+        df = pl.DataFrame({
+            "CustomerID_Std": ["CC-0001"],
+            "Earned_Date": [datetime(2025, 1, 15)],
+            "Transaction_Type": ["Subscription"],
+            "OrderID_Std": ["S-00001"],
+        })
+        sub_dict = {
+            "CC-0001": [{"ValidFrom": datetime(2025, 1, 1), "ValidUntil": datetime(2025, 1, 31)}],
+        }
+        result = polars_subscription_flag(df, sub_dict)
+        assert result["IsSubscriptionService"][0] == 0
+
+
+# =====================================================================
+# _merge_overlapping_periods
+# =====================================================================
+
+class TestMergeOverlappingPeriods:
+    def test_no_overlap(self):
+        periods = [
+            {"ValidFrom": datetime(2025, 1, 1), "ValidUntil": datetime(2025, 1, 31)},
+            {"ValidFrom": datetime(2025, 3, 1), "ValidUntil": datetime(2025, 3, 31)},
+        ]
+        result = _merge_overlapping_periods(periods)
+        assert len(result) == 2
+
+    def test_full_overlap(self):
+        periods = [
+            {"ValidFrom": datetime(2025, 1, 1), "ValidUntil": datetime(2025, 1, 31)},
+            {"ValidFrom": datetime(2025, 1, 10), "ValidUntil": datetime(2025, 1, 20)},
+        ]
+        result = _merge_overlapping_periods(periods)
+        assert len(result) == 1
+        assert result[0]["ValidFrom"] == datetime(2025, 1, 1)
+        assert result[0]["ValidUntil"] == datetime(2025, 1, 31)
+
+    def test_partial_overlap(self):
+        periods = [
+            {"ValidFrom": datetime(2025, 1, 1), "ValidUntil": datetime(2025, 1, 20)},
+            {"ValidFrom": datetime(2025, 1, 15), "ValidUntil": datetime(2025, 2, 15)},
+        ]
+        result = _merge_overlapping_periods(periods)
+        assert len(result) == 1
+        assert result[0]["ValidUntil"] == datetime(2025, 2, 15)
+
+    def test_boundary_touch(self):
+        """Periods that touch at the boundary should merge."""
+        periods = [
+            {"ValidFrom": datetime(2025, 1, 1), "ValidUntil": datetime(2025, 1, 31)},
+            {"ValidFrom": datetime(2025, 1, 31), "ValidUntil": datetime(2025, 2, 28)},
+        ]
+        result = _merge_overlapping_periods(periods)
+        assert len(result) == 1
+
+    def test_single_period(self):
+        periods = [{"ValidFrom": datetime(2025, 1, 1), "ValidUntil": datetime(2025, 1, 31)}]
+        result = _merge_overlapping_periods(periods)
+        assert len(result) == 1
+
+    def test_empty(self):
+        assert _merge_overlapping_periods([]) == []
+
+    def test_three_way_chain(self):
+        """Three overlapping periods should merge into one."""
+        periods = [
+            {"ValidFrom": datetime(2025, 1, 1), "ValidUntil": datetime(2025, 1, 20)},
+            {"ValidFrom": datetime(2025, 1, 15), "ValidUntil": datetime(2025, 2, 10)},
+            {"ValidFrom": datetime(2025, 2, 5), "ValidUntil": datetime(2025, 3, 1)},
+        ]
+        result = _merge_overlapping_periods(periods)
+        assert len(result) == 1
+        assert result[0]["ValidFrom"] == datetime(2025, 1, 1)
+        assert result[0]["ValidUntil"] == datetime(2025, 3, 1)
 
 
 # =====================================================================
