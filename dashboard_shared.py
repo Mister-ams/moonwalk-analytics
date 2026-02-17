@@ -18,7 +18,7 @@ from pathlib import Path
 # DATA PATHS (centralized in config.py)
 # =====================================================================
 
-from config import SALES_CSV, ITEMS_CSV, DIMPERIOD_CSV, DB_PATH, LOGS_PATH
+from config import SALES_CSV, ITEMS_CSV, DIMPERIOD_CSV, DB_PATH, LOGS_PATH, DUCKDB_KEY
 
 _dash_logger = logging.getLogger("dashboard.profiling")
 
@@ -433,7 +433,13 @@ def get_connection():
 
     if db_file:
         try:
-            con = duckdb.connect(str(db_file), read_only=True)
+            if DUCKDB_KEY:
+                db_path_str = str(db_file).replace('\\', '/')
+                con = duckdb.connect(':memory:')
+                con.execute(f"ATTACH '{db_path_str}' AS db (ENCRYPTION_KEY '{DUCKDB_KEY}', READ_ONLY)")
+                con.execute("USE db")
+            else:
+                con = duckdb.connect(str(db_file), read_only=True)
             tables = [r[0] for r in con.execute("SHOW TABLES").fetchall()]
             for required in ("sales", "dim_period"):
                 if required not in tables:

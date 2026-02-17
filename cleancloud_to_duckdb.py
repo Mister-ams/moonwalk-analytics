@@ -24,7 +24,7 @@ import sys
 # CONFIGURATION (centralized in config.py)
 # =====================================================================
 
-from config import LOCAL_STAGING_PATH, DB_PATH, LOGS_PATH
+from config import LOCAL_STAGING_PATH, DB_PATH, LOGS_PATH, DUCKDB_KEY
 
 from logger_config import setup_logger
 logger = setup_logger(__name__)
@@ -181,8 +181,15 @@ def create_database():
     if tmp_path.exists():
         tmp_path.unlink()
 
-    conn = duckdb.connect(str(tmp_path))
-    logger.info(f"  Building new database: {tmp_path.name}")
+    if DUCKDB_KEY:
+        tmp_path_str = str(tmp_path).replace('\\', '/')
+        conn = duckdb.connect(':memory:')
+        conn.execute(f"ATTACH '{tmp_path_str}' AS db (ENCRYPTION_KEY '{DUCKDB_KEY}')")
+        conn.execute("USE db")
+        logger.info(f"  Building new ENCRYPTED database: {tmp_path.name}")
+    else:
+        conn = duckdb.connect(str(tmp_path))
+        logger.info(f"  Building new database: {tmp_path.name}")
     logger.info("")
     total_rows = 0
 

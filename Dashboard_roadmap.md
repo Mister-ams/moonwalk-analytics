@@ -1,7 +1,7 @@
 # Moonwalk Analytics — Master Project Roadmap
 
 **Created:** 16 February 2026
-**Last updated:** 17 February 2026 (v5.2 — Tock 7 + Tick 6B complete)
+**Last updated:** 18 February 2026 (v5.3 — Tock 7B Security complete)
 **Pattern:** Tick-tock within phases; phases aligned to OS v1.0 execution plan
 
 ---
@@ -42,7 +42,8 @@ This roadmap serves the **analytics layer** of the SME Internal Operating System
 | Tock 6 | Quality | Data integrity: subscription overlap merge, CohortMonth validation, TRY_CAST logging, ENUM pre-validation, Polars join idioms. 93 tests. |
 | Tick 6A | Feature | Dashboard polish: sidebar regrouped to 4 sections, period selector SQL cached in session state, CohortMonth null filter fixed, stops.py references removed, docstrings added. 12 pages. |
 | Tock 7 | Quality | Test coverage expansion: 93 → 145 tests. TRY_CAST edge cases (19), order_lookup consistency (3), empty DataFrame (10), Playwright smoke tests (23). |
-| **Tick 6B** | **Feature** | **Streamlit Cloud deployment. `IS_CLOUD` config detection, cloud-resilient logging/profiling, `analytics.duckdb` in repo (11MB), `requirements.txt`, `.streamlit/config.toml`. GitHub: `Mister-ams/moonwalk-analytics` (public).** |
+| Tick 6B | Feature | Streamlit Cloud deployment. `IS_CLOUD` config detection, cloud-resilient logging/profiling, `analytics.duckdb` in repo (11MB), `requirements.txt`, `.streamlit/config.toml`. GitHub: `Mister-ams/moonwalk-analytics` (public). |
+| **Tock 7B** | **Quality** | **Security: Password gate (`hmac` + `st.secrets`), DuckDB AES-256 encryption (ATTACH pattern), `DUCKDB_KEY` in config, Playwright auth tests. Git history purge pending.** |
 
 ### Items Resolved (Previously Listed as Open)
 
@@ -156,17 +157,23 @@ Deep review of all 39 files (9,200 LOC) identified issues across every layer:
 
 ---
 
-### Tock 7B — Security Investigation
+### Tock 7B — Security — COMPLETED 2026-02-18
 
-**Focus:** Investigate data encryption and access controls for the public-repo Streamlit deployment.
-**Scope:** Research and implementation plan. May produce code changes or architectural recommendations.
+**Focus:** Protect PII in public-repo Streamlit deployment (2,293 customer names, Dhs 735K revenue data).
+**Scope:** Password gate + DuckDB encryption + Playwright test updates.
 
-| # | Item | Details | Effort |
+| # | Item | Details | Status |
 |---|------|---------|--------|
-| 7B.1 | **DuckDB encryption at rest** | Investigate DuckDB's built-in encryption, or encrypting the `.duckdb` file before pushing to GitHub. Evaluate trade-offs (key management, Streamlit Cloud compatibility). | 2-3 hrs |
-| 7B.2 | **Streamlit authentication** | Evaluate `st-login-form`, Streamlit's built-in auth (if available), OAuth proxy, or password-gating via `st.secrets`. | 2-3 hrs |
-| 7B.3 | **Sensitive data audit** | Catalog what's in `analytics.duckdb`: customer names, revenue figures, order details. Determine what needs protection vs. what's acceptable in a public repo. | 1-2 hrs |
-| 7B.4 | **Access control recommendation** | Produce a decision document: recommended approach for auth + encryption given the current stack (Streamlit Cloud free tier, public GitHub, DuckDB). | 1-2 hrs |
+| 7B.1 | **DuckDB AES-256 encryption** | `ATTACH ... (ENCRYPTION_KEY)` pattern in builder + reader. `DUCKDB_KEY` from `st.secrets` or `MOONWALK_DUCKDB_KEY` env var. `duckdb>=1.4` required. | Done |
+| 7B.2 | **Password gate** | `hmac.compare_digest` + `st.secrets["DASHBOARD_PASSWORD"]` in `moonwalk_dashboard.py`. No gate when no password configured (local dev backward compat). | Done |
+| 7B.3 | **Secrets management** | `.streamlit/secrets.toml` (gitignored). Streamlit Cloud secrets via Settings UI. | Done |
+| 7B.4 | **Playwright test auth** | `_goto_and_auth()` helper reads password from secrets.toml, authenticates at root, navigates via sidebar links to preserve Streamlit session. | Done |
+| 7B.5 | **Git history purge** | Remove unencrypted `analytics.duckdb` from git history (BFG/filter-repo). | Pending |
+
+**Key decisions:**
+- DuckDB ATTACH pattern (not direct `duckdb.connect(key=...)`) — DuckDB 1.4 encryption only works via ATTACH
+- Password gate uses `st.secrets.get()` with empty-string default — no secrets file = no gate (local dev works unchanged)
+- `@st.cache_resource` on `get_connection()` unchanged — encrypted connection created once per process
 
 ---
 
@@ -370,10 +377,10 @@ DONE
 ├── Tick 6A: Dashboard polish — sidebar, caching, quick wins (2026-02-17)
 ├── Tock 7: Test coverage 93 → 145 (TRY_CAST, Playwright, edge cases) (2026-02-17)
 ├── Tick 6B: Streamlit Cloud deploy + cloud-ready config (2026-02-17)
+├── Tock 7B: Security — password gate + DuckDB AES-256 encryption (2026-02-18)
 │
 NOW (POC — validate full app experience on DuckDB)
 ├── Tick 6.11: Notion portal setup (manual)
-├── Tock 7B: Security — data encryption + Streamlit access controls investigation
 ├── Tick 7: New reporting features (YoY, RFM, churn)
 ├── Tick 8: Appsmith operational UI + lightweight FastAPI (on DuckDB)
 └── Tick 9: Prefect orchestration (replaces PowerShell)

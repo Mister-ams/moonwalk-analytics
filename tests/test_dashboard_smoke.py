@@ -36,6 +36,15 @@ ALL_PAGES = [
     "/payments",
 ]
 
+# Read password once at module level
+_PASSWORD = ""
+_secrets_path = Path(__file__).resolve().parent.parent / ".streamlit" / "secrets.toml"
+if _secrets_path.exists():
+    for _line in _secrets_path.read_text().splitlines():
+        if _line.startswith("DASHBOARD_PASSWORD"):
+            _PASSWORD = _line.split("=", 1)[1].strip().strip('"').strip("'")
+            break
+
 
 def _dashboard_running():
     """Check if dashboard is reachable."""
@@ -52,35 +61,57 @@ skip_if_no_dashboard = pytest.mark.skipif(
 )
 
 
+def _goto_and_auth(page, url):
+    """Navigate to URL and authenticate through password gate if shown.
+
+    Always authenticates at the root first (to establish session), then
+    navigates to the target URL via sidebar link if it's a sub-page.
+    """
+    # Authenticate at root to establish session
+    page.goto(BASE_URL)
+    page.wait_for_load_state("networkidle")
+    pwd_input = page.locator('[data-testid="stTextInput"] input[type="password"]')
+    if pwd_input.count() > 0 and _PASSWORD:
+        pwd_input.fill(_PASSWORD)
+        pwd_input.press("Enter")
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(3000)
+
+    # Navigate to target sub-page via sidebar link (preserves session)
+    if url not in (BASE_URL, f"{BASE_URL}/"):
+        path = url.replace(BASE_URL, "")
+        sidebar_link = page.locator(f'a[href*="{path}"]')
+        if sidebar_link.count() > 0:
+            sidebar_link.first.click()
+            page.wait_for_load_state("networkidle")
+            page.wait_for_timeout(2000)
+
+
 @pytest.mark.playwright
 @skip_if_no_dashboard
 class TestDashboardSmoke:
     """Browser smoke tests for the Streamlit dashboard."""
 
     def test_overview_loads(self, page):
-        page.goto(BASE_URL)
-        page.wait_for_load_state("networkidle")
+        _goto_and_auth(page, BASE_URL)
         # Streamlit renders the app title or header
         assert page.title() or page.locator("text=LOOMI").count() > 0 or page.locator("h1").count() > 0
 
     @pytest.mark.parametrize("path", ALL_PAGES)
     def test_all_pages_load(self, page, path):
-        page.goto(f"{BASE_URL}{path}")
-        page.wait_for_load_state("networkidle")
+        _goto_and_auth(page, f"{BASE_URL}{path}")
         # No st.error or st.exception elements should be visible
         errors = page.locator('[data-testid="stException"], [data-testid="stError"]')
         assert errors.count() == 0, f"Page {path} has errors"
 
     def test_period_selector_renders(self, page):
-        page.goto(BASE_URL)
-        page.wait_for_load_state("networkidle")
+        _goto_and_auth(page, BASE_URL)
         # Should have a selectbox (period dropdown) or pills control
         selectors = page.locator('[data-testid="stSelectbox"], [data-testid="stPills"]')
         assert selectors.count() > 0
 
     def test_monthly_weekly_toggle(self, page):
-        page.goto(BASE_URL)
-        page.wait_for_load_state("networkidle")
+        _goto_and_auth(page, BASE_URL)
         # Find Weekly pill and click it
         weekly = page.locator('text=Weekly')
         if weekly.count() > 0:
@@ -93,37 +124,35 @@ class TestDashboardSmoke:
             assert errors.count() == 0
 
     def test_toggle_persists_across_pages(self, page):
-        page.goto(BASE_URL)
-        page.wait_for_load_state("networkidle")
+        _goto_and_auth(page, BASE_URL)
         # Click Weekly
         weekly = page.locator('text=Weekly')
         if weekly.count() > 0:
             weekly.first.click()
             page.wait_for_timeout(1000)
-            # Navigate to Customers
-            page.goto(f"{BASE_URL}/customers")
-            page.wait_for_load_state("networkidle")
-            page.wait_for_timeout(1000)
+            # Navigate to Customers via sidebar (preserves session)
+            customers_link = page.locator('a[href*="/customers"]')
+            if customers_link.count() > 0:
+                customers_link.first.click()
+                page.wait_for_load_state("networkidle")
+                page.wait_for_timeout(1000)
             # Weekly should still be selected (or at least page loads without error)
             errors = page.locator('[data-testid="stException"]')
             assert errors.count() == 0
 
     def test_sidebar_sections(self, page):
-        page.goto(BASE_URL)
-        page.wait_for_load_state("networkidle")
+        _goto_and_auth(page, BASE_URL)
         content = page.content()
         for section in ["Monthly Report", "Customer Intelligence", "Operations", "Financials"]:
             assert section in content, f"Sidebar missing section: {section}"
 
     def test_footer_data_as_of(self, page):
-        page.goto(BASE_URL)
-        page.wait_for_load_state("networkidle")
+        _goto_and_auth(page, BASE_URL)
         data_as_of = page.locator('text=Data as of')
         assert data_as_of.count() > 0
 
     def test_headline_cards_on_overview(self, page):
-        page.goto(BASE_URL)
-        page.wait_for_load_state("networkidle")
+        _goto_and_auth(page, BASE_URL)
         # Headline cards use st.markdown with custom HTML — look for card divs
         cards = page.locator('.headline-card, [class*="card"]')
         # Fallback: just check that there's meaningful content rendered
@@ -133,31 +162,30 @@ class TestDashboardSmoke:
             assert columns.count() >= 4
 
     def test_detail_page_back_link(self, page):
-        page.goto(f"{BASE_URL}/customers")
-        page.wait_for_load_state("networkidle")
+        _goto_and_auth(page, f"{BASE_URL}/customers")
         # Should have an "Overview" link or back navigation
         overview_link = page.locator('text=Overview')
         assert overview_link.count() > 0
 
     def test_chart_renders(self, page):
-        page.goto(f"{BASE_URL}/customers")
-        page.wait_for_load_state("networkidle")
+        _goto_and_auth(page, f"{BASE_URL}/customers")
         # Plotly charts render as iframe or div with class plotly
         charts = page.locator('.js-plotly-plot, [data-testid="stPlotlyChart"], iframe')
         assert charts.count() > 0, "No chart rendered on customers page"
 
     def test_monthly_only_page_gate(self, page):
-        page.goto(BASE_URL)
-        page.wait_for_load_state("networkidle")
+        _goto_and_auth(page, BASE_URL)
         # Click Weekly
         weekly = page.locator('text=Weekly')
         if weekly.count() > 0:
             weekly.first.click()
             page.wait_for_timeout(1000)
-            # Navigate to Cohort (monthly-only page)
-            page.goto(f"{BASE_URL}/cohort")
-            page.wait_for_load_state("networkidle")
-            page.wait_for_timeout(1000)
+            # Navigate to Cohort (monthly-only page) via sidebar
+            cohort_link = page.locator('a[href*="/cohort"]')
+            if cohort_link.count() > 0:
+                cohort_link.first.click()
+                page.wait_for_load_state("networkidle")
+                page.wait_for_timeout(1000)
             # Should show an info gate message
             info_banner = page.locator('[data-testid="stInfo"]')
             monthly_text = page.locator('text=monthly')
@@ -167,8 +195,7 @@ class TestDashboardSmoke:
     def test_no_console_errors(self, page):
         errors = []
         page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
-        page.goto(BASE_URL)
-        page.wait_for_load_state("networkidle")
+        _goto_and_auth(page, BASE_URL)
         page.wait_for_timeout(2000)
         # Filter out known benign errors (e.g., favicon, Streamlit telemetry)
         real_errors = [

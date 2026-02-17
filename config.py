@@ -58,6 +58,24 @@ DIMPERIOD_CSV = str(LOCAL_STAGING_PATH / "DimPeriod_Python.csv")
 
 MOONWALK_ENV = os.environ.get("MOONWALK_ENV", "production")  # production | development
 
+
+def _get_duckdb_key():
+    """Load DuckDB encryption key from env var or Streamlit secrets.
+
+    Returns empty string if no key is configured (backward compat — no encryption).
+    """
+    key = os.environ.get("MOONWALK_DUCKDB_KEY")
+    if key:
+        return key
+    try:
+        import streamlit as st
+        return st.secrets.get("DUCKDB_KEY", "")
+    except Exception:
+        return ""
+
+
+DUCKDB_KEY = _get_duckdb_key()
+
 # =====================================================================
 # LOGGING CONFIGURATION
 # =====================================================================
