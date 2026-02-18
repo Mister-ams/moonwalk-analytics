@@ -43,7 +43,7 @@ This roadmap serves the **analytics layer** of the SME Internal Operating System
 | Tick 6A | Feature | Dashboard polish: sidebar regrouped to 4 sections, period selector SQL cached in session state, CohortMonth null filter fixed, stops.py references removed, docstrings added. 12 pages. |
 | Tock 7 | Quality | Test coverage expansion: 93 → 145 tests. TRY_CAST edge cases (19), order_lookup consistency (3), empty DataFrame (10), Playwright smoke tests (23). |
 | Tick 6B | Feature | Streamlit Cloud deployment. `IS_CLOUD` config detection, cloud-resilient logging/profiling, `analytics.duckdb` in repo (11MB), `requirements.txt`, `.streamlit/config.toml`. GitHub: `Mister-ams/moonwalk-analytics` (public). |
-| **Tock 7B** | **Quality** | **Security: Password gate (`hmac` + `st.secrets`), DuckDB AES-256 encryption (ATTACH pattern), `DUCKDB_KEY` in config, Playwright auth tests. Git history purged (`git-filter-repo`), encrypted DB pushed to cloud.** |
+| **Tock 7B** | **Quality** | **Security: Password gate (`hmac` + `st.secrets`), DuckDB AES-256 encryption (ATTACH pattern), `DUCKDB_KEY` in config, Playwright auth tests. Git history purged (`git-filter-repo`), encrypted DB pushed to cloud. Streamlit Cloud secrets configured, Notion embed confirmed.** |
 
 ### Items Resolved (Previously Listed as Open)
 
@@ -130,7 +130,7 @@ Deep review of all 39 files (9,200 LOC) identified issues across every layer:
 |---|------|--------|--------|
 | 6.9 | **Cloud-ready config** (`IS_CLOUD`, resilient logging/profiling) | Sprint plan | Done |
 | 6.10 | **GitHub repo + Streamlit Cloud deploy** | Sprint plan | Done — `Mister-ams/moonwalk-analytics` (public) |
-| 6.11 | **Notion portal setup** | OS v1.0 POC | Pending (manual) |
+| 6.11 | **Notion portal setup** | OS v1.0 POC | Done — Streamlit Cloud embed live in Notion |
 
 **Data refresh workflow:**
 1. Download CSVs from CleanCloud
@@ -380,7 +380,7 @@ DONE
 ├── Tock 7B: Security — password gate + DuckDB AES-256 encryption (2026-02-18)
 │
 NOW (POC — validate full app experience on DuckDB)
-├── Tick 6.11: Notion portal setup (manual)
+├── Tick 6.11: Notion portal — Streamlit embed live (2026-02-18)
 ├── Tick 7: New reporting features (YoY, RFM, churn)
 ├── Tick 8: Appsmith operational UI + lightweight FastAPI (on DuckDB)
 └── Tick 9: Prefect orchestration (replaces PowerShell)
