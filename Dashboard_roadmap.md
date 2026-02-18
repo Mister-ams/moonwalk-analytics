@@ -43,7 +43,7 @@ This roadmap serves the **analytics layer** of the SME Internal Operating System
 | Tick 6A | Feature | Dashboard polish: sidebar regrouped to 4 sections, period selector SQL cached in session state, CohortMonth null filter fixed, stops.py references removed, docstrings added. 12 pages. |
 | Tock 7 | Quality | Test coverage expansion: 93 → 145 tests. TRY_CAST edge cases (19), order_lookup consistency (3), empty DataFrame (10), Playwright smoke tests (23). |
 | Tick 6B | Feature | Streamlit Cloud deployment. `IS_CLOUD` config detection, cloud-resilient logging/profiling, `analytics.duckdb` in repo (11MB), `requirements.txt`, `.streamlit/config.toml`. GitHub: `Mister-ams/moonwalk-analytics` (public). |
-| **Tock 7B** | **Quality** | **Security: Password gate (`hmac` + `st.secrets`), DuckDB AES-256 encryption (ATTACH pattern), `DUCKDB_KEY` in config, Playwright auth tests. Git history purge pending.** |
+| **Tock 7B** | **Quality** | **Security: Password gate (`hmac` + `st.secrets`), DuckDB AES-256 encryption (ATTACH pattern), `DUCKDB_KEY` in config, Playwright auth tests. Git history purged (`git-filter-repo`), encrypted DB pushed to cloud.** |
 
 ### Items Resolved (Previously Listed as Open)
 
@@ -168,7 +168,7 @@ Deep review of all 39 files (9,200 LOC) identified issues across every layer:
 | 7B.2 | **Password gate** | `hmac.compare_digest` + `st.secrets["DASHBOARD_PASSWORD"]` in `moonwalk_dashboard.py`. No gate when no password configured (local dev backward compat). | Done |
 | 7B.3 | **Secrets management** | `.streamlit/secrets.toml` (gitignored). Streamlit Cloud secrets via Settings UI. | Done |
 | 7B.4 | **Playwright test auth** | `_goto_and_auth()` helper reads password from secrets.toml, authenticates at root, navigates via sidebar links to preserve Streamlit session. | Done |
-| 7B.5 | **Git history purge** | Remove unencrypted `analytics.duckdb` from git history (BFG/filter-repo). | Pending |
+| 7B.5 | **Git history purge** | Removed unencrypted `analytics.duckdb` from git history via `git-filter-repo`. Encrypted DB (8.3 MB, AES-256) committed and force-pushed. | Done |
 
 **Key decisions:**
 - DuckDB ATTACH pattern (not direct `duckdb.connect(key=...)`) — DuckDB 1.4 encryption only works via ATTACH
