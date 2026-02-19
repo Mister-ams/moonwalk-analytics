@@ -3,7 +3,7 @@ project: moonwalk
 type: roadmap
 status: active
 created: 2026-02-16
-updated: 2026-02-18
+updated: 2026-02-19
 ---
 
 # Moonwalk Analytics — Master Project Roadmap
@@ -50,6 +50,7 @@ This roadmap serves the **analytics layer** of the SME Internal Operating System
 | Tock 7 | Quality | Test coverage expansion: 93 → 145 tests. TRY_CAST edge cases (19), order_lookup consistency (3), empty DataFrame (10), Playwright smoke tests (23). |
 | Tick 6B | Feature | Streamlit Cloud deployment. `IS_CLOUD` config detection, cloud-resilient logging/profiling, `analytics.duckdb` in repo (11MB), `requirements.txt`, `.streamlit/config.toml`. GitHub: `Mister-ams/moonwalk-analytics` (public). |
 | **Tock 7B** | **Quality** | **Security: Password gate (`hmac` + `st.secrets`), DuckDB AES-256 encryption (ATTACH pattern), `DUCKDB_KEY` in config, Playwright auth tests. Git history purged (`git-filter-repo`), encrypted DB pushed to cloud. Streamlit Cloud secrets configured, Notion embed confirmed.** |
+| **Tick 7** | **Feature** | **Persona-based dashboard redesign: 12 pages → 4 persona pages (Executive Pulse, Customer Analytics, Operations Center, Financial Performance) with 15 tabs. YoY overlays + 3P moving avg (`render_trend_chart_v3`), M0-M3+ extended cohort, all-time retention heatmap, RFM segmentation (6 segments + CLV), 20-rule insights engine, outstanding balances (aging buckets), pareto/concentration chart. Legacy→paid fix. 8 new `section_data.py` functions. 122 tests pass.** |
 
 ### Items Resolved (Previously Listed as Open)
 
@@ -183,10 +184,12 @@ Deep review of all 39 files (9,200 LOC) identified issues across every layer:
 
 ---
 
-### Tick 7 — Persona-Based Dashboard Redesign
+### Tick 7 — Persona-Based Dashboard Redesign — COMPLETED 2026-02-19
 
 **Focus:** Restructure the entire dashboard around 4 user personas. Replace 12 flat sidebar pages with 4 dense, tabbed pages. Add YoY, extended cohort, rules-based insights, outstanding balances, and pareto analysis.
 **Scope:** Full dashboard rewrite (all 12 pages → 4 pages), new SQL queries, rules-based insights engine, DuckDB data fixes.
+
+**Results:** 4 persona pages, 15 tabs, 122 tests pass. `analytics.duckdb` rebuilt with `insights` table (20 rules). Committed and pushed to `Mister-ams/moonwalk-analytics` (master `7c85096`). Streamlit Cloud auto-redeploying.
 
 #### Design Decisions (Feb 2026)
 
@@ -236,72 +239,72 @@ Cross-cutting: CSV export on every page (st.download_button)
 
 | # | Item | Page | Complexity | Status |
 |---|------|------|-----------|--------|
-| 7.1 | **Executive Pulse — Snapshot tab** | Exec | Medium | — |
+| 7.1 | **Executive Pulse — Snapshot tab** | Exec | Medium | Done |
 | | 4 KPI cards (Customers, Items, Revenue, Stops) with MoM + YoY | | | |
 | | Sub-metrics: Client/Subscriber split per card | | | |
 | | Period selector (monthly/weekly toggle) | | | |
-| 7.2 | **Executive Pulse — Trends tab** | Exec | Medium | — |
+| 7.2 | **Executive Pulse — Trends tab** | Exec | Medium | Done |
 | | 4 trend charts (6-month/13-week bars) | | | |
 | | YoY overlay (prior year as dashed line) | | | |
 | | Average Order Value trend (Revenue / Items) | | | |
 | | 3-month moving average forecast overlay (dashed line) | | | |
-| 7.3 | **Executive Pulse — Insights tab** | Exec | Medium | — |
+| 7.3 | **Executive Pulse — Insights tab** | Exec | Medium | Done |
 | | Rules-based insights engine (15-20 templates) | | | |
 | | `insights` table in DuckDB, generated during rebuild | | | |
 | | Seasonal context annotations | | | |
-| 7.4 | **Customer Analytics — Acquisition tab** | Sales | Medium | — |
+| 7.4 | **Customer Analytics — Acquisition tab** | Sales | Medium | Done |
 | | New vs Existing vs Reactivated customers, items, revenue | | | |
 | | New/Existing/Reactivated split trend chart | | | |
 | | Reactivation rate: dormant 3+ months returning (self-join on customer×month) | | | |
-| 7.5 | **Customer Analytics — Segmentation tab** | Sales | High | — |
+| 7.5 | **Customer Analytics — Segmentation tab** | Sales | High | Done |
 | | Client vs Subscriber breakdown | | | |
 | | Multi-service customers (count, %, revenue share) | | | |
 | | Top 20% by spend and volume | | | |
 | | RFM scoring: Recency (months since last order) × Frequency (order count) × Monetary (total revenue), quintile-based (1-5 per dimension) | | | |
 | | Simple CLV estimate: avg monthly revenue × avg active lifespan from cohort decay | | | |
-| 7.6 | **Customer Analytics — Cohort tab** | Sales | High | — |
+| 7.6 | **Customer Analytics — Cohort tab** | Sales | High | Done |
 | | M0-M3+ metrics (extend from current M0/M1) | | | |
 | | Retention heatmap (cohort month × M0-M6 grid) | | | |
 | | Per-customer ratios by cohort month | | | |
-| 7.7 | **Customer Analytics — Per-Customer tab** | Sales | Low | — |
+| 7.7 | **Customer Analytics — Per-Customer tab** | Sales | Low | Done |
 | | Items per Customer (Total, Client, Subscriber) | | | |
 | | Revenue per Customer (Total, Client, Subscriber) | | | |
-| 7.8 | **Operations Center — Logistics tab** | Ops | Low | — |
+| 7.8 | **Operations Center — Logistics tab** | Ops | Low | Done |
 | | Stops, Deliveries, Pickups headline cards | | | |
 | | Revenue per Delivery (not per stop), Delivery Rate | | | |
 | | Items Delivered, Items per Delivery | | | |
-| 7.9 | **Operations Center — Geography tab** | Ops | Low | — |
+| 7.9 | **Operations Center — Geography tab** | Ops | Low | Done |
 | | Inside vs Outer Abu Dhabi stacked bar | | | |
 | | Detail cards: Customers, Items, Stops, Revenue by geo | | | |
 | | Geo trend chart (shift over time) | | | |
-| 7.10 | **Operations Center — Service Mix tab** | Ops | Medium | — |
+| 7.10 | **Operations Center — Service Mix tab** | Ops | Medium | Done |
 | | Item Category breakdown (5 types × volume + revenue) | | | |
 | | Service Type breakdown (4 types × volume + revenue) | | | |
 | | Express order share (volume and revenue) | | | |
-| 7.11 | **Financial Performance — Collections tab** | Perf | Medium | — |
+| 7.11 | **Financial Performance — Collections tab** | Perf | Medium | Done |
 | | Revenue vs Collections headline + gap analysis | | | |
 | | Collection methods (Stripe/Terminal/Cash) | | | |
 | | Collection Rate % | | | |
 | | Payment method trend (digital adoption over time) | | | |
-| 7.12 | **Financial Performance — Payment Cycle tab** | Perf | Low | — |
+| 7.12 | **Financial Performance — Payment Cycle tab** | Perf | Low | Done |
 | | Avg Days to Payment, Processing Time, Time in Store | | | |
 | | Data coverage caveat ("Based on 34% of CC_2025 orders") | | | |
-| 7.13 | **Financial Performance — Concentration tab** | Perf | Medium | — |
+| 7.13 | **Financial Performance — Concentration tab** | Perf | Medium | Done |
 | | Pareto chart (cumulative revenue curve) | | | |
 | | Multi-service customers (count, revenue share) | | | |
 | | Top 20 customers by revenue (`st.dataframe()`) | | | |
-| 7.14 | **Financial Performance — Outstanding tab** | Perf | Medium | — |
+| 7.14 | **Financial Performance — Outstanding tab** | Perf | Medium | Done |
 | | Total outstanding (CC_2025 only: Dhs 20K) | | | |
 | | Top 20 customers by outstanding balance | | | |
 | | Top 20 oldest unpaid orders | | | |
 | | Outstanding by aging bucket (0-30, 31-60, 61-90, 90+ days) | | | |
-| 7.15 | **DuckDB data fixes** | ETL | Low | — |
+| 7.15 | **DuckDB data fixes** | ETL | Low | Done |
 | | Set `Paid = true` for all `Source = 'Legacy'` rows | | | |
 | | Generate `insights` table during DuckDB rebuild | | | |
-| 7.16 | **Playwright test rewrite** | Test | Medium | — |
+| 7.16 | **Playwright test rewrite** | Test | Medium | Done |
 | | Update all smoke tests for 4-page/tab structure | | | |
 | | Test tab navigation, persona-specific content | | | |
-| 7.17 | **Export/download functionality** | All | Low | — |
+| 7.17 | **Export/download functionality** | All | Low | Done |
 | | `st.download_button()` on each of 4 persona pages | | | |
 | | Export current view as CSV | | | |
 
