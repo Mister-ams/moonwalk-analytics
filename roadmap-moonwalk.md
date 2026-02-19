@@ -3,7 +3,7 @@ project: moonwalk
 type: roadmap
 status: active
 created: 2026-02-16
-updated: 2026-02-19
+updated: 2026-02-19 (v5.7 — post Tick 9)
 ---
 
 # Moonwalk Analytics — Master Project Roadmap
@@ -51,6 +51,7 @@ This roadmap serves the **analytics layer** of the SME Internal Operating System
 | Tick 6B | Feature | Streamlit Cloud deployment. `IS_CLOUD` config detection, cloud-resilient logging/profiling, `analytics.duckdb` in repo (11MB), `requirements.txt`, `.streamlit/config.toml`. GitHub: `Mister-ams/moonwalk-analytics` (public). |
 | **Tock 7B** | **Quality** | **Security: Password gate (`hmac` + `st.secrets`), DuckDB AES-256 encryption (ATTACH pattern), `DUCKDB_KEY` in config, Playwright auth tests. Git history purged (`git-filter-repo`), encrypted DB pushed to cloud. Streamlit Cloud secrets configured, Notion embed confirmed.** |
 | **Tick 7** | **Feature** | **Persona-based dashboard redesign: 12 pages → 4 persona pages (Executive Pulse, Customer Analytics, Operations Center, Financial Performance) with 15 tabs. YoY overlays + 3P moving avg (`render_trend_chart_v3`), M0-M3+ extended cohort, all-time retention heatmap, RFM segmentation (6 segments + CLV), 20-rule insights engine, outstanding balances (aging buckets), pareto/concentration chart. Legacy→paid fix. 8 new `section_data.py` functions. 122 tests pass.** |
+| **Tick 9** | **Feature** | **FastAPI operational API: `api/` package (auth, SQLite, employees CRUD), Railway deployment artifacts (`Procfile`, `runtime.txt`, `.env.example`), `Start-API.ps1`, 13 FastAPI tests. 160 total tests.** |
 | **Tick 8** | **Feature** | **Closed period filter (`IsCurrentMonth = 0` / `IsCurrentISOWeek = 0` in period selector SQL), UI polish (1rem border-radius, layered shadows, neutral MoM pill `#CFD8DC`/`#37474F`, refined card typography + chart config), Notion portal page (`30ca2f71-fdb0-81fa-a12b-c5e844be2bf3`) with 4 persona callout blocks + Streamlit links, LLM narrative pipeline: new `notion_push.py` generates 4-paragraph GPT-4o-mini narrative from `insights` table and appends to Notion after each `refresh_cli.py` run. READ_ONLY DuckDB ATTACH for concurrent access. `NOTION_API_KEY` + `OPENAI_API_KEY` wired into `config.py` + `.streamlit/secrets.toml`.** |
 
 ### Items Resolved (Previously Listed as Open)
@@ -364,21 +365,42 @@ Cross-cutting: CSV export on every page (st.download_button)
 
 ---
 
-### Tick 9 — Appsmith Operational UI
+### Tick 9 — FastAPI + Appsmith Infrastructure — COMPLETED 2026-02-19
 
-**Focus:** Build the operational application layer. Outstanding balance follow-up moves from read-only Streamlit to actionable Appsmith.
-**Scope:** Appsmith deployment, FastAPI skeleton, Notion portal integration. No Postgres.
+**Focus:** Build the operational API layer. First CRUD use case: employee information management.
+**Scope:** FastAPI + SQLite skeleton, `api/` package, Railway deployment artifacts, 13 tests. No outstanding balances (deferred). No Postgres.
 
-| # | Item | Details |
-|---|------|---------|
-| 9.1 | **FastAPI skeleton** | CRUD endpoints reading from DuckDB/CSV, health endpoint. Lightweight — no auth yet. |
-| 9.2 | **Appsmith deployment** | Local or cloud Appsmith instance. Connect to FastAPI. |
-| 9.3 | **Outstanding balance management** | Appsmith screen: search unpaid orders, mark as paid, add follow-up notes. Replaces read-only Streamlit view for actionable items. |
-| 9.4 | **Customer lookup/edit** | Appsmith screen: search by name/ID, view full order history, edit customer record. |
-| 9.5 | **Notion portal update** | Links to Appsmith (operational) + Streamlit (analytics). Per-persona SOPs. |
-| 9.6 | **Phase out Excel PowerPivot** | Once Streamlit + Appsmith provide equivalent coverage. |
+| # | Item | Details | Status |
+|---|------|---------|--------|
+| 9.1 | **FastAPI skeleton** | `api/` package: `main.py`, `auth.py`, `database.py`, `models.py`, `routers/health.py`, `routers/employees.py`. Full CRUD with X-API-Key auth. | Done |
+| 9.2 | **SQLite operational DB** | `operational.db` — separate from `analytics.duckdb`. Schema: `employees` table. WAL mode for concurrent uvicorn workers. Test-isolated via `_DB_PATH` redirect. | Done |
+| 9.3 | **API key auth** | `X-API-Key` header via `MOONWALK_API_KEY` env var. Read at request time (not import time) for test isolation. Fail-closed: no key = all requests rejected. | Done |
+| 9.4 | **Employee CRUD** | `GET /employees` (list + status filter), `POST /employees` (create), `GET /employees/{id}`, `PATCH /employees/{id}` (true PATCH), `DELETE /employees/{id}` (soft + hard). | Done |
+| 9.5 | **Railway deployment artifacts** | `Procfile` (`uvicorn api.main:app --host 0.0.0.0 --port $PORT`), `runtime.txt` (python-3.13), `.env.example`. | Done |
+| 9.6 | **Local dev launcher** | `Start-API.ps1` — mirrors `Start-Dashboard.ps1` structure; checks .env, uvicorn, binds to 127.0.0.1:8000 with --reload. Added to Moonwalk Launcher. | Done |
+| 9.7 | **13 FastAPI tests** | `tests/test_api.py` — health, auth (3), CRUD (7), validation (1). All in-process, no network, no running server. | Done |
+| 9.3d | **Outstanding balance management** | Deferred to future app build cycle. | Deferred |
+| 9.4d | **Customer lookup/edit** | Deferred to future app build cycle. | Deferred |
+| 9.5d | **Notion portal update** | Manual Notion edit (2 min). Code update deferred to Tick 10. | Deferred |
+| 9.6d | **Phase out Excel PowerPivot** | Deferred until Appsmith + Streamlit provide equivalent coverage. | Deferred |
 
-**Separation of concerns:** Streamlit = analytical (view-only). Appsmith = operational (CRUD). FastAPI reads from DuckDB during POC; when Postgres arrives, only the data source changes.
+**Key architectural decisions:**
+
+| Decision | Choice | Reason |
+|----------|--------|--------|
+| Operational DB | SQLite (`operational.db`) | No install, simple, separate from analytics DuckDB |
+| FastAPI deployment | Railway (free tier) | Appsmith Cloud must call a public URL |
+| API auth | `X-API-Key` header via env var | Safe for public GitHub; never committed |
+| Appsmith | Appsmith Cloud | Multi-user; matches Streamlit cloud model |
+
+**Railway ephemeral note:** SQLite resets on redeploy. Acceptable for POC. Fix: add persistent disk ($0.25/GB) or migrate to Postgres (Tock M).
+
+**Results:** 13 tests pass. 160 total tests. FastAPI imports clean. `api/` package ready for Railway deploy.
+
+**Next steps (manual):**
+1. `railway login && railway init` in PythonScript/ → set `MOONWALK_API_KEY=<uuid>` → `railway up`
+2. Appsmith Cloud: new workspace "Moonwalk", add API datasource pointing to Railway URL
+3. Build Employee Directory page in Appsmith (Table + Form + PATCH + soft-delete)
 
 ---
 

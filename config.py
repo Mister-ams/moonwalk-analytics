@@ -123,3 +123,17 @@ def _get_notion_token():
 
 
 NOTION_TOKEN = _get_notion_token()
+
+# =====================================================================
+# FASTAPI (Operational API — runs independently of Streamlit)
+# =====================================================================
+
+# Pure env var — no st.secrets fallback (FastAPI runs without Streamlit)
+FASTAPI_API_KEY = os.environ.get("MOONWALK_API_KEY", "")
+FASTAPI_PORT = int(os.environ.get("MOONWALK_API_PORT", "8000"))
+API_VERSION = "0.1.0"
+
+# Operational SQLite (separate from analytics.duckdb)
+OPERATIONAL_DB_PATH = Path(
+    os.environ.get("MOONWALK_OPERATIONAL_DB", str(_SCRIPT_DIR / "operational.db"))
+)

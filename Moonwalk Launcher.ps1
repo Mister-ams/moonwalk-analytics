@@ -11,6 +11,7 @@ $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Definition
 . "$ScriptDir\config.ps1"
 $WorkingDir  = $MoonwalkConfig.LocalStagingFolder
 $ChatGPTLauncherScript = Join-Path $ScriptDir 'launch_chatgpt_cli.py'
+$DevTeamAgentDir = Join-Path (Split-Path $env:USERPROFILE) "$($env:USERNAME)\Downloads\DevTeam_Agent"
 $PythonExe  = $null
 
 $PythonCandidates = @()
@@ -38,21 +39,11 @@ $Scripts = @(
     @{ File = 'refresh_moonwalk_data.ps1';       Desc = 'Full Refresh: ETL + Excel + OneDrive + DuckDB';    Section = $null }
     @{ File = 'Start-Dashboard.ps1';             Desc = 'Launch Dashboard (rebuilds DuckDB if stale)';      Section = $null }
 
-    # ETL Pipeline
-    @{ File = 'cleancloud_to_excel_MASTER.py';   Desc = 'ETL orchestrator - runs all transforms';           Section = 'ETL Pipeline' }
-    @{ File = 'cleancloud_to_duckdb.py';         Desc = 'Rebuild analytics.duckdb from Parquet files';      Section = $null }
-
-    # Individual Transforms
-    @{ File = 'generate_dimperiod.py';                  Desc = 'Date dimension table (auto 3-month lookahead)';  Section = 'Individual Transforms' }
-    @{ File = 'transform_all_customers.py';             Desc = 'Customer master data';                           Section = $null }
-    @{ File = 'transform_all_sales.py';                 Desc = 'Orders + Subscriptions + Invoices';              Section = $null }
-    @{ File = 'transform_all_items.py';                 Desc = 'Item-level data with categories';                Section = $null }
-    @{ File = 'transform_customer_quality_monthly.py';  Desc = 'Monthly customer quality scoring';               Section = $null }
-
     # Utilities
     @{ File = 'refresh_cli.py';                  Desc = 'Cross-platform refresh (ETL + DuckDB, no Excel)';   Section = 'Utilities' }
+    @{ File = 'cleancloud_to_duckdb.py';         Desc = 'Rebuild analytics.duckdb from Parquet files';       Section = $null }
     @{ File = 'verify_migration.py';             Desc = 'Verify ETL output against golden baselines';        Section = $null }
-    @{ File = 'extract_powerquery_mcode.ps1';    Desc = 'Extract Power Query M-code from Excel';             Section = $null }
+    @{ File = 'Start-API.ps1';                   Desc = 'Start Operational API (local dev, port 8000)';      Section = $null }
 )
 
 $Divider = '-' * 70
@@ -82,7 +73,9 @@ function Show-Menu {
     Write-Host ''
     Write-Host "  $Divider"
     Write-Host '  [C]  Open Claude Code in project directory'
+    Write-Host '  [D]  DevTeam Agent - AI Planning Pipeline'
     Write-Host '  [G]  Open ChatGPT CLI in project directory'
+    Write-Host '  [R]  Restart this launcher'
     Write-Host '  [Q]  Quit'
     Write-Host "  $Divider"
     Write-Host ''
@@ -97,6 +90,77 @@ function Start-ClaudeCode {
     }
     catch {
         Write-Host "  ERROR: Could not launch Claude Code. Is it installed and in PATH?"
+    }
+}
+
+function Start-DevTeamAgent {
+    Write-Host "`n  Launching DevTeam Agent - Planning Pipeline ...`n"
+    if (-not (Test-Path $DevTeamAgentDir)) {
+        Write-Host "  ERROR: DevTeam Agent directory not found: $DevTeamAgentDir" -ForegroundColor Red
+        return
+    }
+    if (-not $PythonExe) {
+        Write-Host '  ERROR: Python not found. Cannot launch DevTeam Agent.' -ForegroundColor Red
+        return
+    }
+
+    $runPlanner = Join-Path $DevTeamAgentDir 'run_planner.py'
+    if (-not (Test-Path $runPlanner)) {
+        Write-Host "  ERROR: run_planner.py not found in: $DevTeamAgentDir" -ForegroundColor Red
+        return
+    }
+
+    # Launch in a new PowerShell window with an interactive prompt loop
+    $defaultRoot = $ScriptDir
+    $agentCmd = @(
+        "-ExecutionPolicy Bypass -NoExit -Command",
+        "cd '$DevTeamAgentDir';",
+        "Write-Host '';",
+        "Write-Host '  ============================================================' -ForegroundColor Cyan;",
+        "Write-Host '  DevTeam Agent - AI Planning Pipeline (v0.5.0)' -ForegroundColor Cyan;",
+        "Write-Host '  ============================================================' -ForegroundColor Cyan;",
+        "Write-Host '  Generates project roadmaps with Tick/Tock milestones,' -ForegroundColor Gray;",
+        "Write-Host '  red-team risk assessment, and sprint sequencing.' -ForegroundColor Gray;",
+        "Write-Host '';",
+        "Write-Host '  Flags: --model MODEL | --root PATH | --redact-pii | --strict-schema | --json-summary' -ForegroundColor Gray;",
+        "Write-Host '  Type `"exit`" to close this window.' -ForegroundColor Gray;",
+        "Write-Host '';",
+        "`$hasKey = [bool]`$env:OPENAI_API_KEY;",
+        "if (`$hasKey) { Write-Host '  Mode: LLM (OpenAI API key detected)' -ForegroundColor Green }",
+        "else { Write-Host '  Mode: Template (no API key - set OPENAI_API_KEY for LLM mode)' -ForegroundColor Yellow };",
+        "Write-Host '';",
+        "Write-Host '  Available models:' -ForegroundColor Gray;",
+        "Write-Host '    [1] gpt-4o-mini  (fast, cheap - default)' -ForegroundColor Gray;",
+        "Write-Host '    [2] gpt-4o       (balanced)' -ForegroundColor Gray;",
+        "Write-Host '    [3] o3-mini      (reasoning)' -ForegroundColor Gray;",
+        "Write-Host '    [4] Custom       (enter model name)' -ForegroundColor Gray;",
+        "Write-Host '';",
+        "`$defaultModel = if (`$env:OPENAI_MODEL) { `$env:OPENAI_MODEL } else { 'gpt-4o-mini' };",
+        "`$mc = Read-Host `"  Select model [1-4] or Enter for `$defaultModel`";",
+        "`$selectedModel = switch (`$mc) { '1' { 'gpt-4o-mini' } '2' { 'gpt-4o' } '3' { 'o3-mini' } '4' { Read-Host '  Enter model name' } default { `$defaultModel } };",
+        "Write-Host `"  Using model: `$selectedModel`" -ForegroundColor Green;",
+        "Write-Host '';",
+        "`$projectRoot = Read-Host '  Project root for stack discovery [Enter for $defaultRoot]';",
+        "if ([string]::IsNullOrWhiteSpace(`$projectRoot)) { `$projectRoot = '$defaultRoot' };",
+        "Write-Host `"  Stack discovery root: `$projectRoot`" -ForegroundColor Green;",
+        "Write-Host '';",
+        "while (`$true) {",
+        "  `$p = Read-Host `"  [`$selectedModel] Enter your project prompt (or exit)`";",
+        "  if (`$p -eq 'exit') { exit };",
+        "  if ([string]::IsNullOrWhiteSpace(`$p)) { continue };",
+        "  Write-Host '';",
+        "  if (`$hasKey) { & '$PythonExe' '$runPlanner' --prompt `$p --model `$selectedModel --root `$projectRoot --json-summary -v }",
+        "  else { & '$PythonExe' '$runPlanner' --prompt `$p --use-template --root `$projectRoot --json-summary -v };",
+        "  Write-Host '';",
+        "}"
+    ) -join ' '
+
+    try {
+        Start-Process powershell -ArgumentList $agentCmd
+        Write-Host '  DevTeam Agent window opened.'
+    }
+    catch {
+        Write-Host '  ERROR: Could not launch DevTeam Agent.' -ForegroundColor Red
     }
 }
 
@@ -177,9 +241,16 @@ while ($true) {
         Start-ClaudeCode
         Read-Host "`n  Press Enter to continue..."
     }
+    elseif ($choice -eq 'D') {
+        Start-DevTeamAgent
+        Read-Host "`n  Press Enter to continue..."
+    }
     elseif ($choice -eq 'G') {
         Start-ChatGPTCLI
         Read-Host "`n  Press Enter to continue..."
+    }
+    elseif ($choice -eq 'R') {
+        continue
     }
     else {
         $idx = $null

@@ -41,5 +41,8 @@ DimPeriod_Python.parquet
 # Golden baselines (local testing only)
 golden_baselines/
 
+# Operational SQLite database (ephemeral — do not track)
+operational.db
+
 # Windows shortcuts
 *.lnk
