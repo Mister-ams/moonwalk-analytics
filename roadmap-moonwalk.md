@@ -355,10 +355,12 @@ Cross-cutting: CSV export on every page (st.download_button)
 
 | # | Item | Details |
 |---|------|---------|
-| 8.1 | **Playwright test rewrite** | 4 pages × 2-4 tabs = ~20 smoke tests (replaces 23 existing tests for old 12-page structure) |
-| 8.2 | **Remove old page files** | Delete 12 old page files, update `moonwalk_dashboard.py` routing |
-| 8.3 | **Update CLAUDE.md** | Reflect new 4-page persona architecture, metric keys, page structure |
-| 8.4 | **Cloud deploy verification** | Push restructured dashboard, verify Streamlit Cloud renders all tabs correctly |
+| 8.1 | **Playwright test rewrite** | 4 pages × 2-4 tabs = ~20 smoke tests (replaces 23 existing tests for old 12-page structure) | Done |
+| 8.2 | **Remove old page files** | Delete 12 old page files (`overview`, `customers`, `items`, `revenues`, `customer_insights`, `customer_report`, `customer_report_revenue`, `new_customers`, `cohort`, `logistics`, `operations`, `payments`) | Done |
+| 8.3 | **Update CLAUDE.md** | Test counts (122→147), playwright line added, Tock 8 completed | Done |
+| 8.4 | **Cloud deploy verification** | All 4 persona pages verified on Streamlit Cloud — no errors, all tabs render, real data | Done |
+
+**Results:** 20 Playwright tests (was 23), 147 total tests. 12 dead page files removed. Cloud verified on all 4 pages and 15 tabs. Committed `15b611c`, pushed to `Mister-ams/moonwalk-analytics`.
 
 ---
 
@@ -566,7 +568,7 @@ CleanCloud CSV (manual download)
 
 Orchestration: Prefect (replaces PowerShell)
 Development: Claude Code
-Tests: 122 (pytest + Playwright)
+Tests: 147 (pytest + Playwright)
 Deployment: Streamlit Community Cloud (auto-deploy on push)
 ```
 
@@ -611,10 +613,10 @@ DONE
 ├── Tick 6B: Streamlit Cloud deploy + cloud-ready config (2026-02-17)
 ├── Tock 7B: Security — password gate + DuckDB AES-256 encryption (2026-02-18)
 ├── Tick 7: Persona-based dashboard redesign — 4 pages, 15 tabs (2026-02-19)
-└── Tick 8: Closed periods, UI polish, Notion portal + LLM narrative pipeline (2026-02-19)
+├── Tick 8: Closed periods, UI polish, Notion portal + LLM narrative pipeline (2026-02-19)
+└── Tock 8: Playwright rewrite (4-page), 12 dead pages deleted, 147 tests (2026-02-19)
 │
-NOW (POC — operational layer + testing)
-├── Tock 8: Test rewrite + stabilization after restructure (deferred from before Tick 8)
+NOW (POC — operational layer)
 ├── Tick 9: Appsmith operational UI (outstanding balances, customer lookup)
 ├── Tick 10: Prefect orchestration + Notion KPI database (LLM narrative push done in Tick 8)
 └── Tick 7B: Dashboard enhancements (Notion embeds, PDF reports, advanced RFM actions)
