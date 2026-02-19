@@ -322,26 +322,29 @@ Cross-cutting: CSV export on every page (st.download_button)
 
 ### Tick 8 — UI Polish + Closed Periods + Notion Intelligence Layer — COMPLETED 2026-02-19
 
-**Focus:** Dashboard accuracy (closed periods only), visual refinements, and automated LLM narrative generation pushed to Notion on each data refresh.
-**Scope:** `dashboard_shared.py` (period filter + UI polish), new `notion_push.py`, `config.py` (Notion/OpenAI keys), `refresh_cli.py` (Notion step wired in).
+**Focus:** Dashboard accuracy (closed periods only), visual refinements, token-based Notion access, and automated LLM narrative generation pushed to Notion on each data refresh.
+**Scope:** `dashboard_shared.py`, `moonwalk_dashboard.py`, `cleancloud_to_duckdb.py`, `config.py`, new `notion_push.py`, `refresh_cli.py`.
 
 | # | Item | Details | Status |
 |---|------|---------|--------|
-| 8.1 | **Closed period filter** | `period_selector()` monthly SQL: `AND p.IsCurrentMonth = 0`. Weekly SQL: `AND p.IsCurrentISOWeek = 0`. Period dropdown now defaults to last closed period (Jan 2026 monthly / previous ISO week). | Done |
+| 8.1 | **Closed period filter** | `period_selector()` monthly SQL: `AND p.IsCurrentMonth = 0`. Weekly SQL: `AND p.IsCurrentISOWeek = 0`. Period dropdown defaults to last closed period. `create_insights_table()` in `cleancloud_to_duckdb.py` changed from `<= current month` to `< current month` — insights always built on last completed month. | Done |
 | 8.2 | **UI polish — CSS** | `inject_global_styles()`: `1rem` border-radius on cards + chart containers, layered shadows (`0 1px 3px … 0 4px 14px …`), neutral MoM pill (`#CFD8DC` bg / `#37474F` fg, replacing alarming yellow), `0.75rem` vertical gap. | Done |
 | 8.3 | **UI polish — card typography** | `headline_card()`/`headline_card_with_subs()`: header padding `0.6rem 0.5rem`, font-size `0.875rem`, letter-spacing `0.06em`, main value `1.85rem`, sub-row padding `0.25rem 0`, dividers `rgba(0,0,0,0.07)`, footer `color:#666; font-size:0.8rem`. | Done |
-| 8.4 | **UI polish — charts** | `render_trend_chart_v2/v3`: `gridcolor="rgba(0,0,0,0.08)"`, `bargap=0.30` monthly (was 0.35), `font=dict(size=15, weight=600)`. | Done |
-| 8.5 | **Notion portal page** | Created page `30ca2f71-fdb0-81fa-a12b-c5e844be2bf3` with 4 persona callout blocks (Executive Pulse / Customer Analytics / Operations Center / Financial Performance) and direct Streamlit per-page links. Integration token connected manually via Notion Connections menu. | Done |
-| 8.6 | **LLM narrative pipeline (`notion_push.py`)** | Fetches `insights` table context + KPI snapshot (current + prior month) → GPT-4o-mini prompt → 4 paragraphs (60-80 words each, one per persona) → callout block (timestamp + period) + 4 paragraph blocks appended to Notion. `NOTION_API_KEY` + `OPENAI_API_KEY` loaded from `config.py` / `.streamlit/secrets.toml`. | Done |
-| 8.7 | **Wire into `refresh_cli.py`** | After successful DuckDB rebuild: `from notion_push import run as notion_run; notion_run(log=logger.info)` — non-fatal, logs and skips if either API key absent. | Done |
+| 8.4 | **UI polish — charts** | `render_trend_chart_v2/v3`: `gridcolor="rgba(0,0,0,0.08)"`, `bargap=0.30` monthly (was 0.35), `font=dict(size=15, weight=600)`. AOV chart in Trends tab replaced with Stops. | Done |
+| 8.5 | **Weekly period labels** | `format_period_label()` weekly format changed from date-based ("9 Feb 26") to ISO week format ("26W07"). | Done |
+| 8.6 | **Token-based password bypass** | `moonwalk_dashboard.py` `_check_password()` checks `?token=<NOTION_TOKEN>` query param via `st.query_params`. Visitors from Notion links bypass password gate. `NOTION_TOKEN` added to `config.py` + `.streamlit/secrets.toml` + Streamlit Cloud secrets. | Done |
+| 8.7 | **Notion portal page** | Page `30ca2f71-fdb0-81fa-a12b-c5e844be2bf3`. Single `📊 Latest Insights` toggle (owned entirely by `notion_push.py` via API). All 5 Streamlit links include `?token=loomi-portal-2026`. No separate PERSONA PAGES section — links embedded inside each persona callout in the toggle. | Done |
+| 8.8 | **LLM narrative pipeline (`notion_push.py`)** | Fetches `insights` table (last completed month) + KPI snapshot → GPT-4o-mini JSON prompt → 3 bullets per persona → `📊 Latest Insights` toggle populated: 1 timestamp callout + 4 colored persona callouts (bold heading + bullets + `Open [Page] →` link). `_find_or_create_insights_toggle()` verifies `is_toggleable` and recreates if a non-toggle heading is found. Uses READ_ONLY DuckDB ATTACH. | Done |
+| 8.9 | **Wire into `refresh_cli.py`** | After successful DuckDB rebuild: `from notion_push import run as notion_run; notion_run(log=logger.info)` — non-fatal, logs and skips if either API key absent. | Done |
 
 **Key decisions:**
-- READ_ONLY DuckDB ATTACH (`ATTACH '...' AS db (ENCRYPTION_KEY '...', READ_ONLY)`) — allows `notion_push.py` to read while dashboard may hold the write lock
-- OpenAI (`gpt-4o-mini`) over Anthropic — user already had OpenAI API key; `openai>=1.0` added to `pyproject.toml`
-- Notion integration token vs OAuth — internal integrations cannot access pages created via MCP (OAuth); one-time manual share via Notion Connections menu resolves this permanently
-- Neutral MoM pill — gray `#CFD8DC`/`#37474F` replaces yellow `#fff176`/`#f57f17`; yellow was alarming on flat/stable months
+- `create_insights_table()` uses `<` (not `<=`) on `YearMonth < current month` — insights always reflect fully closed periods, consistent with dashboard period filter
+- Notion portal `📊 Latest Insights` toggle is **owned by `notion_push.py` via API only** — never include it in MCP `replace_content` calls (MCP recreates heading as non-toggleable, breaking `children.append`)
+- READ_ONLY DuckDB ATTACH — `notion_push.py` can run while dashboard holds the write lock
+- OpenAI (`gpt-4o-mini`) JSON output format — 3 crisp bullets per persona, specific numbers, active voice; fallback parser on JSON parse failure
+- Neutral MoM pill — gray `#CFD8DC`/`#37474F` replaces alarming yellow
 
-**Results:** 122 tests unchanged. End-to-end: DuckDB rebuild (0.9s) + GPT-4o-mini narrative (~10s) + Notion push = ~12.4s total.
+**Results:** 122 tests unchanged. Cloud deployed (master `5942b93`). End-to-end refresh: DuckDB rebuild (0.9s) + GPT-4o-mini (~10s) + Notion push = ~12s total.
 
 ---
 
