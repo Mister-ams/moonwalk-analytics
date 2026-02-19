@@ -49,9 +49,7 @@ def _open_db():
 
 def _fetch_context(con) -> dict:
     """Fetch current period KPIs + insights rules for the LLM prompt."""
-    period_row = con.execute(
-        "SELECT MAX(period) FROM insights WHERE CAST(period || '-01' AS DATE) < DATE_TRUNC('month', CURRENT_DATE)::DATE"
-    ).fetchone()
+    period_row = con.execute("SELECT MAX(period) FROM insights").fetchone()
     if not period_row or period_row[0] is None:
         raise ValueError("No rows in insights table — run cleancloud_to_duckdb.py first")
     period = period_row[0]
@@ -144,10 +142,15 @@ def _find_or_create_insights_toggle(notion_client, page_id: str, log) -> str:
     response = notion_client.blocks.children.list(page_id)
     for block in response.get("results", []):
         block_type = block.get("type", "")
-        rt = block.get(block_type, {}).get("rich_text", [])
+        block_data = block.get(block_type, {})
+        rt = block_data.get("rich_text", [])
         text = "".join(t.get("text", {}).get("content", "") for t in rt)
         if _INSIGHTS_HEADING in text:
-            return block["id"]
+            if block_data.get("is_toggleable"):
+                return block["id"]
+            # Found a non-toggleable heading (e.g. created by page replace) — delete and recreate
+            log("Notion: replacing non-toggleable 'Latest Insights' heading with toggleable version")
+            notion_client.blocks.delete(block["id"])
 
     result = notion_client.blocks.children.append(
         page_id,

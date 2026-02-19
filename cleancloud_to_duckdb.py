@@ -541,7 +541,7 @@ def create_insights_table(conn):
 
     # Determine current and prior month
     row = conn.execute(
-        "SELECT MAX(YearMonth) FROM dim_period WHERE YearMonth <= strftime(CURRENT_DATE, '%Y-%m')"
+        "SELECT MAX(YearMonth) FROM dim_period WHERE YearMonth < strftime(CURRENT_DATE, '%Y-%m')"
     ).fetchone()
     if not row or not row[0]:
         logger.info("  [SKIP] No dim_period data — skipping insights")
