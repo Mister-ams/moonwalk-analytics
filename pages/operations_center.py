@@ -10,6 +10,7 @@ import streamlit as st
 from dashboard_shared import (
     COLORS,
     METRIC_CONFIG,
+    activate_tab_from_url,
     change_html,
     compute_fetch_periods,
     detail_card,
@@ -55,7 +56,9 @@ ops_cur = ops_data.get(selected_period, {})
 ops_idx = available_periods.index(selected_period)
 ops_prev = ops_data.get(available_periods[ops_idx - 1]) if ops_idx > 0 else None
 
+_OC_TABS = ["Logistics", "Geography", "Service Mix"]
 tab1, tab2, tab3 = st.tabs(["🚚 Logistics", "🗺️ Geography", "🧺 Service Mix"])
+activate_tab_from_url(_OC_TABS)
 
 # ─── LOGISTICS TAB ────────────────────────────────────────────────────
 with tab1:

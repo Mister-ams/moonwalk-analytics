@@ -10,6 +10,7 @@ dependencies = [
     "plotly>=5.0",
     "notion-client>=2.2",
     "openai>=1.0",
+    "fpdf2>=2.8",
     "fastapi>=0.111",
     "uvicorn[standard]>=0.29",
     "python-dotenv>=1.0",

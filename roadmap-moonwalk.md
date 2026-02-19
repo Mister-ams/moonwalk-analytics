@@ -3,7 +3,7 @@ project: moonwalk
 type: roadmap
 status: active
 created: 2026-02-16
-updated: 2026-02-19 (v5.7 — post Tick 9)
+updated: 2026-02-19 (v5.8 — post Tick 7B)
 ---
 
 # Moonwalk Analytics — Master Project Roadmap
@@ -422,18 +422,19 @@ Cross-cutting: CSV export on every page (st.download_button)
 
 ---
 
-### Tick 7B — Dashboard Enhancements (After Stabilization)
+### Tick 7B — Dashboard Enhancements ✅ Completed 2026-02-19
 
 **Focus:** Second-wave features that build on the Tick 7 persona structure.
-**Scope:** Creative embeds, advanced analytics beyond what Tick 7 delivers.
 
-| # | Item | Complexity | Business Value |
-|---|------|-----------|---------------|
-| 7B.1 | Streamlit embed URLs for Notion (creative embeds via `?tab=` URL params) | Medium | Medium — Notion shows live data frames |
-| 7B.2 | PDF report generation (scheduled via Prefect) | Medium | High — monthly board report |
-| 7B.3 | Advanced RFM actions (segment-based recommendations, alerts) | Medium | High — bridges analytics → operations |
+| # | Item | Status |
+|---|------|--------|
+| 7B.1 | URL tab selection (`?tab=snapshot`) — `activate_tab_from_url()` in all 4 pages | **Done** |
+| 7B.2 | PDF report download — `generate_report.py` (5 pages, fpdf2), button in Snapshot tab | **Done** |
+| 7B.3 | RFM segment definitions panel — 6 colored cards in Segmentation tab expander | **Done** |
 
-**Note:** RFM scoring, CLV, reactivation rate, forecasting, and CSV export were originally planned for 7B but pulled forward into Tick 7.
+**Also shipped:** Notion `?tab=` params in `notion_push.py` — persona callout links now open specific tabs. 4 new integration tests (`test_report.py`) — 164 total tests.
+
+**Deferred:** Creative Notion embeds (iframe), advanced RFM alert automation.
 
 ---
 
@@ -642,7 +643,7 @@ DONE
 NOW (POC — operational layer)
 ├── Tick 9: Appsmith operational UI (outstanding balances, customer lookup)
 ├── Tick 10: Prefect orchestration + Notion KPI database (LLM narrative push done in Tick 8)
-└── Tick 7B: Dashboard enhancements (Notion embeds, PDF reports, advanced RFM actions)
+└── Tick 7B: Dashboard enhancements (URL tabs, PDF report, RFM defs) ✅ DONE
 
 NEXT (Postgres Migration — dedicated cycle)
 ├── Postgres schema + Alembic migrations

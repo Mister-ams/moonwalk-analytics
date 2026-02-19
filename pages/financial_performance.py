@@ -10,6 +10,7 @@ import streamlit as st
 
 from dashboard_shared import (
     COLORS,
+    activate_tab_from_url,
     change_html,
     compute_fetch_periods,
     dirham_html,
@@ -51,7 +52,9 @@ pm_prev = pm_data.get(available_periods[pm_idx - 1]) if pm_idx > 0 else None
 ops_cur = ops_data.get(selected_period, {})
 ops_prev = ops_data.get(available_periods[pm_idx - 1]) if pm_idx > 0 else None
 
+_FP_TABS = ["Collections", "Payment Cycle", "Concentration", "Outstanding"]
 tab1, tab2, tab3, tab4 = st.tabs(["💳 Collections", "⏱️ Payment Cycle", "📊 Concentration", "📋 Outstanding"])
+activate_tab_from_url(_FP_TABS)
 
 
 def _pm_chg(key):

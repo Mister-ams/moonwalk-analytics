@@ -10,6 +10,7 @@ from customer_report_shared import fetch_customer_measures_batch, fetch_new_cust
 from dashboard_shared import (
     COLORS,
     METRIC_CONFIG,
+    activate_tab_from_url,
     change_html,
     compute_fetch_periods,
     dirham_html,
@@ -48,7 +49,9 @@ render_page_title("Customer Analytics", hdr)
 selected_period, available_periods = period_selector(con, show_title=False)
 window, fetch_periods = compute_fetch_periods(selected_period, available_periods)
 
+_CA_TABS = ["Acquisition", "Segmentation", "Cohort", "Per-Customer"]
 tab1, tab2, tab3, tab4 = st.tabs(["👥 Acquisition", "🎯 Segmentation", "📅 Cohort", "📊 Per-Customer"])
+activate_tab_from_url(_CA_TABS)
 
 # ─── ACQUISITION TAB ─────────────────────────────────────────────────
 with tab1:
@@ -241,6 +244,61 @@ with tab2:
                 use_container_width=True,
                 hide_index=True,
             )
+
+            _SEGMENT_DEFS = {
+                "Champions": {
+                    "criteria": "Recent · Frequent",
+                    "description": "Your best customers — ordered recently and regularly.",
+                    "action": "Reward loyalty. Offer premium or priority services. Potential referral sources.",
+                    "color": "#1B5E20",
+                },
+                "Loyal": {
+                    "criteria": "Consistent · Reliable",
+                    "description": "Steady customers who order regularly. Reliable revenue base.",
+                    "action": "Upsell subscription services. Collect feedback to maintain satisfaction.",
+                    "color": "#2E7D32",
+                },
+                "Recent": {
+                    "criteria": "New or returning · Low frequency",
+                    "description": "Ordered recently but haven't yet built a habit.",
+                    "action": "Send a follow-up. Promote subscription plans to build frequency.",
+                    "color": "#0277BD",
+                },
+                "At Risk": {
+                    "criteria": "Previously frequent · Now quiet",
+                    "description": "Used to order regularly — now going cold. High churn risk.",
+                    "action": "Win-back outreach: discount, or reminder of past services.",
+                    "color": "#B71C1C",
+                },
+                "Frequent": {
+                    "criteria": "Regular cadence · Less recent",
+                    "description": "Order with some regularity but haven't been seen recently.",
+                    "action": "Re-engage with a targeted promotion or 'We miss you' message.",
+                    "color": "#E65100",
+                },
+                "Other": {
+                    "criteria": "Irregular · Low engagement",
+                    "description": "Occasional or one-time customers. Low recency and frequency.",
+                    "action": "Low priority. If count is large, consider a broad re-engagement campaign.",
+                    "color": "#546E7A",
+                },
+            }
+
+            with st.expander("Segment Definitions & Recommended Actions"):
+                def_cols = st.columns(3)
+                for i, (seg_name, seg_data) in enumerate(_SEGMENT_DEFS.items()):
+                    with def_cols[i % 3]:
+                        st.markdown(
+                            f'<div style="border-left:4px solid {seg_data["color"]};padding:0.6rem 0.8rem;'
+                            f'margin-bottom:0.75rem;background:#fafafa;border-radius:0 4px 4px 0">'
+                            f'<div style="font-weight:700;font-size:0.9rem;color:{seg_data["color"]}">{seg_name}</div>'
+                            f'<div style="font-size:0.75rem;color:#666;margin:0.15rem 0">{seg_data["criteria"]}</div>'
+                            f'<div style="font-size:0.82rem;margin:0.3rem 0">{seg_data["description"]}</div>'
+                            f'<div style="font-size:0.78rem;color:#555;margin-top:0.3rem">'
+                            f'<strong>Action:</strong> {seg_data["action"]}</div>'
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
 
         st.markdown("---")
         render_section_heading("Customer Lifetime Value (Simple)", hdr)

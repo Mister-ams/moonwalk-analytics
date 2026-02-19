@@ -1692,6 +1692,38 @@ def render_footer():
     st.caption(f":clock1: Data as of {label}")
 
 
+def activate_tab_from_url(tab_names: list[str]) -> None:
+    """Read ?tab= query param and JS-click the matching tab on first page load.
+
+    Tab names are matched case-insensitively; spaces and hyphens become underscores.
+    E.g. tab_names=["Snapshot", "Trends"] matches ?tab=snapshot or ?tab=trends.
+    Only fires once per requested tab per session to avoid re-clicking on reruns.
+    """
+    import streamlit.components.v1 as components
+
+    requested = st.query_params.get("tab", "").lower().replace("-", "_").replace(" ", "_")
+    if not requested:
+        return
+
+    state_key = f"_tab_activated_{requested}"
+    if st.session_state.get(state_key):
+        return
+    st.session_state[state_key] = True
+
+    normalized = [t.lower().replace("-", "_").replace(" ", "_") for t in tab_names]
+    if requested not in normalized:
+        return
+    idx = normalized.index(requested)
+
+    js = f"""<script>
+    setTimeout(function() {{
+        var tabs = window.parent.document.querySelectorAll('button[role="tab"]');
+        if (tabs && tabs[{idx}]) tabs[{idx}].click();
+    }}, 200);
+    </script>"""
+    components.html(js, height=0)
+
+
 # =====================================================================
 # DETAIL PAGE CONFIG & SHARED RENDERER
 # =====================================================================

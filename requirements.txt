@@ -2,3 +2,4 @@ streamlit>=1.40
 duckdb>=1.4
 plotly>=5.0
 polars>=1.0
+fpdf2>=2.8

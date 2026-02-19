@@ -10,6 +10,7 @@ import streamlit as st
 from dashboard_shared import (
     COLORS,
     METRIC_CONFIG,
+    activate_tab_from_url,
     change_html,
     compute_fetch_periods,
     dirham_html,
@@ -40,10 +41,26 @@ stop_hdr = COLORS["stops"]["header"]
 selected_period, available_periods = period_selector(con, show_title=True)
 window, fetch_periods = compute_fetch_periods(selected_period, available_periods)
 
+_EP_TABS = ["Snapshot", "Trends", "Insights"]
 tab1, tab2, tab3 = st.tabs(["📊 Snapshot", "📈 Trends", "💡 Insights"])
+activate_tab_from_url(_EP_TABS)
 
 # ─── SNAPSHOT TAB ────────────────────────────────────────────────────
 with tab1:
+    _, _dl_col, _ = st.columns([1, 18, 1])
+    with _dl_col:
+        if st.button("Download Monthly Report (PDF)", key="ep_pdf_btn", type="secondary"):
+            from generate_report import generate_monthly_report
+
+            pdf_bytes = generate_monthly_report(con, selected_period, available_periods)
+            st.download_button(
+                label="Save PDF",
+                data=pdf_bytes,
+                file_name=f"moonwalk-report-{selected_period}.pdf",
+                mime="application/pdf",
+                key="ep_pdf_dl",
+            )
+
     trend_data = fetch_measures_batch(con, tuple(fetch_periods))
     yoy_data = fetch_yoy_batch(con, tuple(fetch_periods))
 

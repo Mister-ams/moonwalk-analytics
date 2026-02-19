@@ -27,10 +27,10 @@ _BASE_URL = "https://loomi-performance-analytics.streamlit.app"
 _INSIGHTS_HEADING = "📊 Latest Insights"
 
 _PERSONA_CONFIG = [
-    ("executive_pulse", "🎯", "Executive Pulse", "yellow_background", ""),
-    ("customer_analytics", "👥", "Customer Analytics", "green_background", "customer_analytics"),
-    ("operations_center", "🚚", "Operations Center", "blue_background", "operations_center"),
-    ("financial_performance", "💰", "Financial Performance", "purple_background", "financial_performance"),
+    ("executive_pulse", "🎯", "Executive Pulse", "yellow_background", "", "snapshot"),
+    ("customer_analytics", "👥", "Customer Analytics", "green_background", "customer_analytics", "segmentation"),
+    ("operations_center", "🚚", "Operations Center", "blue_background", "operations_center", "logistics"),
+    ("financial_performance", "💰", "Financial Performance", "purple_background", "financial_performance", "collections"),
 ]
 
 
@@ -198,12 +198,17 @@ def _build_insight_blocks(ts: str, period: str, sections: dict, notion_token: st
         }
     ]
 
-    for key, emoji, label, color, page_path in _PERSONA_CONFIG:
+    for key, emoji, label, color, page_path, tab_param in _PERSONA_CONFIG:
         bullets = sections.get(key, ["No data available."])
         bullet_lines = "\n".join(f"  \u2022  {b}" for b in bullets)
         url = f"{_BASE_URL}/{page_path}".rstrip("/")
+        params = []
         if notion_token:
-            url += f"?token={notion_token}"
+            params.append(f"token={notion_token}")
+        if tab_param:
+            params.append(f"tab={tab_param}")
+        if params:
+            url += "?" + "&".join(params)
         blocks.append(
             {
                 "object": "block",
