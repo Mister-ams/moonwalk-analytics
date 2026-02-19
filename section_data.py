@@ -18,6 +18,7 @@ from dashboard_shared import get_grain_context, _log_query_time
 # 02 — CUSTOMER INSIGHTS
 # =====================================================================
 
+
 @st.cache_data(ttl=300)
 def fetch_customer_insights_batch(_con, months_tuple):
     """Fetch active customers, multi-service, and top-20% analysis."""
@@ -91,6 +92,7 @@ def fetch_customer_insights_batch(_con, months_tuple):
 # =====================================================================
 # 03 — COHORT ANALYSIS
 # =====================================================================
+
 
 @st.cache_data(ttl=300)
 def fetch_cohort_batch(_con, months_tuple):
@@ -181,6 +183,7 @@ def compute_cohort_retention(trend_data, available_months, selected_month):
 # 04 — LOGISTICS
 # =====================================================================
 
+
 @st.cache_data(ttl=300)
 def fetch_logistics_batch(_con, periods_tuple):
     """Fetch stops, delivery metrics, and geographic distribution."""
@@ -198,7 +201,9 @@ def fetch_logistics_batch(_con, periods_tuple):
             SUM(CASE WHEN s.HasDelivery = 1 THEN s.Total_Num ELSE 0 END) AS delivery_revenue,
             SUM(s.Total_Num) AS total_revenue,
             SUM(s.HasDelivery) AS deliveries,
-            SUM(s.HasPickup) AS pickups
+            SUM(s.HasPickup) AS pickups,
+            SUM(CASE WHEN s.HasDelivery = 1 THEN s.Total_Num ELSE 0 END)
+                / NULLIF(SUM(s.HasDelivery), 0) AS rev_per_delivery
         FROM sales s
         JOIN dim_period p ON {sales_join}
         WHERE s.Earned_Date IS NOT NULL
@@ -230,6 +235,8 @@ def fetch_logistics_batch(_con, periods_tuple):
         total_rev = float(h_row["total_revenue"].iloc[0]) if len(h_row) else 0.0
         deliveries = int(h_row["deliveries"].iloc[0]) if len(h_row) else 0
         pickups = int(h_row["pickups"].iloc[0]) if len(h_row) else 0
+        rpd_val = h_row["rev_per_delivery"].iloc[0] if len(h_row) else None
+        rev_per_delivery = float(rpd_val) if rpd_val is not None and not (rpd_val != rpd_val) else 0.0
 
         geo = {}
         for cat in ("Inside Abu Dhabi", "Outer Abu Dhabi"):
@@ -248,6 +255,7 @@ def fetch_logistics_batch(_con, periods_tuple):
             "lg_delivery_rate": deliveries / total_stops if total_stops > 0 else 0.0,
             "lg_deliveries": deliveries,
             "lg_pickups": pickups,
+            "lg_rev_per_delivery": rev_per_delivery,
             "geo": geo,
         }
     _log_query_time("fetch_logistics_batch", time.perf_counter() - _t0, len(periods))
@@ -258,6 +266,7 @@ def fetch_logistics_batch(_con, periods_tuple):
 # 05 — OPERATIONS
 # =====================================================================
 
+
 @st.cache_data(ttl=300)
 def fetch_operations_batch(_con, periods_tuple):
     """Fetch items and revenue by Item_Category and Service_Type."""
@@ -267,10 +276,11 @@ def fetch_operations_batch(_con, periods_tuple):
     period_col, sales_join = ctx["period_col"], ctx["sales_join"]
     placeholders = ", ".join(f"'{p}'" for p in periods)
 
-    # Query 1: By Item_Category
+    # Query 1: By Item_Category (includes express totals for express_share)
     cat_df = _con.execute(f"""
         SELECT {period_col} AS period, i.Item_Category,
-            SUM(i.Quantity) AS items, SUM(i.Total) AS revenue
+            SUM(i.Quantity) AS items, SUM(i.Total) AS revenue,
+            SUM(CASE WHEN i.Express = TRUE THEN i.Quantity ELSE 0 END) AS express_items
         FROM items i
         JOIN dim_period p ON i.ItemDate = p.Date
         WHERE {period_col} IN ({placeholders})
@@ -306,14 +316,22 @@ def fetch_operations_batch(_con, periods_tuple):
     for pd in periods:
         row = {"categories": {}, "services": {}}
 
+        all_items_total = 0
+        express_total = 0
         for cat in categories:
             c_row = cat_df[(cat_df["period"] == pd) & (cat_df["Item_Category"] == cat)]
             items = int(c_row["items"].iloc[0]) if len(c_row) else 0
             revenue = float(c_row["revenue"].iloc[0]) if len(c_row) else 0.0
+            express_cat = int(c_row["express_items"].iloc[0]) if len(c_row) else 0
             row["categories"][cat] = {"items": items, "revenue": revenue}
             safe = cat.lower().replace(" ", "_").replace("&", "and")
             row[f"cat_{safe}_items"] = items
             row[f"cat_{safe}_rev"] = revenue
+            all_items_total += items
+            express_total += express_cat
+
+        row["express_items"] = express_total
+        row["express_share"] = express_total / all_items_total if all_items_total > 0 else 0.0
 
         for svc in services:
             s_row = svc_df[(svc_df["period"] == pd) & (svc_df["Service_Type"] == svc)]
@@ -337,6 +355,7 @@ def fetch_operations_batch(_con, periods_tuple):
 # =====================================================================
 # 06 — PAYMENTS
 # =====================================================================
+
 
 @st.cache_data(ttl=300)
 def fetch_payments_batch(_con, periods_tuple):
@@ -375,3 +394,257 @@ def fetch_payments_batch(_con, periods_tuple):
         }
     _log_query_time("fetch_payments_batch", time.perf_counter() - _t0, len(periods))
     return result
+
+
+# =====================================================================
+# NEW FUNCTIONS FOR TICK 7 — PERSONA PAGES
+# =====================================================================
+
+
+@st.cache_data(ttl=300)
+def fetch_yoy_batch(_con, periods_tuple):
+    """Fetch prior-year data for the given periods (for YoY overlay in v3 charts).
+
+    Derives prior-year period strings ("2026-02" -> "2025-02", "2026-W06" -> "2025-W06"),
+    fetches measures for those prior periods, then re-keys the result to the current periods.
+    """
+    from dashboard_shared import fetch_measures_batch
+
+    periods = list(periods_tuple)
+
+    def _prior_year(p):
+        if "W" in p:
+            parts = p.split("-W")
+            return f"{int(parts[0]) - 1}-W{parts[1]}"
+        parts = p.split("-")
+        return f"{int(parts[0]) - 1}-{parts[1]}"
+
+    prior_periods = [_prior_year(p) for p in periods]
+    prior_data = fetch_measures_batch(_con, tuple(prior_periods))
+
+    # Re-key: prior period string -> current period string
+    result = {}
+    for cur, prior in zip(periods, prior_periods):
+        result[cur] = prior_data.get(prior, {})
+    return result
+
+
+@st.cache_data(ttl=300)
+def fetch_extended_cohort_batch(_con, months_tuple):
+    """Fetch M0-M3 customer counts, items, revenue for cohort analysis."""
+    _t0 = time.perf_counter()
+    months = list(months_tuple)
+    placeholders = ", ".join(f"'{m}'" for m in months)
+
+    # Query 1: M0-M3 customer counts + revenue
+    sales_df = _con.execute(f"""
+        SELECT p.YearMonth, CAST(s.MonthsSinceCohort AS INTEGER) AS cohort_month,
+            COUNT(DISTINCT s.CustomerID_Std) AS customers,
+            SUM(s.Total_Num) AS revenue
+        FROM sales s
+        JOIN dim_period p ON s.OrderCohortMonth = p.Date
+        WHERE s.Earned_Date IS NOT NULL
+          AND s.MonthsSinceCohort IN (0, 1, 2, 3)
+          AND p.YearMonth IN ({placeholders})
+        GROUP BY p.YearMonth, CAST(s.MonthsSinceCohort AS INTEGER)
+    """).df()
+
+    # Query 2: M0-M3 items
+    items_df = _con.execute(f"""
+        SELECT p.YearMonth, CAST(sc.MonthsSinceCohort AS INTEGER) AS cohort_month,
+            SUM(i.Quantity) AS items
+        FROM items i
+        JOIN dim_period p ON i.ItemDate = p.Date
+        LEFT JOIN (
+            SELECT DISTINCT OrderID_Std, MonthsSinceCohort FROM sales
+        ) sc ON i.OrderID_Std = sc.OrderID_Std
+        WHERE sc.MonthsSinceCohort IN (0, 1, 2, 3)
+          AND p.YearMonth IN ({placeholders})
+        GROUP BY p.YearMonth, CAST(sc.MonthsSinceCohort AS INTEGER)
+    """).df()
+
+    result = {}
+    for m in months:
+        row = {}
+        for cm in (0, 1, 2, 3):
+            prefix = f"m{cm}"
+            s_row = sales_df[(sales_df["YearMonth"] == m) & (sales_df["cohort_month"] == cm)]
+            i_row = items_df[(items_df["YearMonth"] == m) & (items_df["cohort_month"] == cm)]
+
+            customers = int(s_row["customers"].iloc[0]) if len(s_row) else 0
+            revenue = float(s_row["revenue"].iloc[0]) if len(s_row) else 0.0
+            items = int(i_row["items"].iloc[0]) if len(i_row) else 0
+
+            row[f"{prefix}_customers"] = customers
+            row[f"{prefix}_revenue"] = revenue
+            row[f"{prefix}_items"] = items
+            row[f"{prefix}_rev_per_customer"] = revenue / customers if customers > 0 else 0.0
+            row[f"{prefix}_items_per_customer"] = items / customers if customers > 0 else 0.0
+
+        result[m] = row
+    _log_query_time("fetch_extended_cohort_batch", time.perf_counter() - _t0, len(months))
+    return result
+
+
+@st.cache_data(ttl=300)
+def fetch_retention_heatmap(_con):
+    """Fetch all-time cohort retention data for heatmap rendering."""
+    _t0 = time.perf_counter()
+    df = _con.execute("""
+        SELECT c.CohortMonth,
+               CAST(s.MonthsSinceCohort AS INTEGER) AS month_num,
+               COUNT(DISTINCT s.CustomerID_Std) AS customers
+        FROM sales s
+        JOIN customers c ON s.CustomerID_Std = c.CustomerID_Std
+        WHERE s.Earned_Date IS NOT NULL
+          AND s.Transaction_Type <> 'Invoice Payment'
+          AND s.MonthsSinceCohort IS NOT NULL
+          AND CAST(s.MonthsSinceCohort AS INTEGER) BETWEEN 0 AND 6
+        GROUP BY c.CohortMonth, CAST(s.MonthsSinceCohort AS INTEGER)
+        ORDER BY c.CohortMonth, month_num
+    """).df()
+    _log_query_time("fetch_retention_heatmap", time.perf_counter() - _t0, 0)
+    return df
+
+
+@st.cache_data(ttl=300)
+def fetch_reactivation_batch(_con, months_tuple):
+    """Fetch reactivated customers (dormant 3+ months then returning) per month."""
+    _t0 = time.perf_counter()
+    months = list(months_tuple)
+    placeholders = ", ".join(f"'{m}'" for m in months)
+
+    df = _con.execute(f"""
+        WITH monthly_active AS (
+            SELECT DISTINCT s.CustomerID_Std, s.OrderCohortMonth AS month_date
+            FROM sales s
+            WHERE s.Earned_Date IS NOT NULL AND s.Transaction_Type <> 'Invoice Payment'
+        ),
+        with_lag AS (
+            SELECT CustomerID_Std, month_date,
+                   LAG(month_date) OVER (PARTITION BY CustomerID_Std ORDER BY month_date) AS prev_month
+            FROM monthly_active
+        ),
+        reactivated AS (
+            SELECT CustomerID_Std, month_date FROM with_lag
+            WHERE prev_month IS NOT NULL AND DATEDIFF('month', prev_month, month_date) >= 3
+        )
+        SELECT p.YearMonth, COUNT(DISTINCT r.CustomerID_Std) AS reactivated_customers
+        FROM reactivated r JOIN dim_period p ON r.month_date = p.Date
+        WHERE p.YearMonth IN ({placeholders})
+        GROUP BY p.YearMonth
+    """).df()
+
+    result = {}
+    for m in months:
+        r_row = df[df["YearMonth"] == m]
+        result[m] = {"reactivated_customers": int(r_row["reactivated_customers"].iloc[0]) if len(r_row) else 0}
+    _log_query_time("fetch_reactivation_batch", time.perf_counter() - _t0, len(months))
+    return result
+
+
+@st.cache_data(ttl=300)
+def fetch_rfm_snapshot(_con, selected_period):
+    """Fetch per-customer RFM raw data for customers active in last 6 months."""
+    _t0 = time.perf_counter()
+    df = _con.execute(f"""
+        WITH period_anchor AS (
+            SELECT MAX(p.Date) AS anchor_date
+            FROM dim_period p WHERE p.YearMonth = '{selected_period}'
+        ),
+        cutoff AS (
+            SELECT DATE_TRUNC('month', anchor_date - INTERVAL 6 MONTH) AS from_date
+            FROM period_anchor
+        )
+        SELECT s.CustomerID_Std,
+               DATEDIFF('day', MAX(s.Earned_Date), (SELECT anchor_date FROM period_anchor)) AS recency,
+               COUNT(DISTINCT s.OrderID_Std) AS frequency,
+               SUM(s.Total_Num) AS monetary
+        FROM sales s
+        WHERE s.Earned_Date IS NOT NULL
+          AND s.Transaction_Type <> 'Invoice Payment'
+          AND s.OrderCohortMonth >= (SELECT from_date FROM cutoff)
+          AND s.OrderCohortMonth <= (SELECT anchor_date FROM period_anchor)
+        GROUP BY s.CustomerID_Std
+        HAVING SUM(s.Total_Num) > 0
+    """).df()
+    _log_query_time("fetch_rfm_snapshot", time.perf_counter() - _t0, 1)
+    return df
+
+
+@st.cache_data(ttl=300)
+def fetch_clv_estimate(_con):
+    """Fetch simple CLV estimate (avg monthly revenue × avg active months)."""
+    _t0 = time.perf_counter()
+    r = _con.execute("""
+        WITH cs AS (
+            SELECT CustomerID_Std,
+                   MAX(CAST(MonthsSinceCohort AS INTEGER)) + 1 AS active_months,
+                   SUM(Total_Num) / NULLIF(MAX(CAST(MonthsSinceCohort AS INTEGER)) + 1, 0) AS avg_monthly_rev
+            FROM sales WHERE Earned_Date IS NOT NULL AND Transaction_Type <> 'Invoice Payment'
+              AND MonthsSinceCohort IS NOT NULL
+            GROUP BY CustomerID_Std
+        )
+        SELECT AVG(avg_monthly_rev), AVG(active_months), AVG(avg_monthly_rev) * AVG(active_months)
+        FROM cs
+    """).fetchone()
+    _log_query_time("fetch_clv_estimate", time.perf_counter() - _t0, 0)
+    if not r or r[0] is None:
+        return {"avg_monthly_rev": 0.0, "avg_lifespan": 0.0, "simple_clv": 0.0}
+    return {"avg_monthly_rev": float(r[0]), "avg_lifespan": float(r[1]), "simple_clv": float(r[2])}
+
+
+@st.cache_data(ttl=300)
+def fetch_pareto_data(_con, selected_period):
+    """Fetch per-customer revenue for the selected period (for Pareto/concentration chart)."""
+    _t0 = time.perf_counter()
+    df = _con.execute(f"""
+        SELECT s.CustomerID_Std, c.CustomerName, SUM(s.Total_Num) AS revenue
+        FROM sales s
+        JOIN dim_period p ON s.OrderCohortMonth = p.Date
+        JOIN customers c ON s.CustomerID_Std = c.CustomerID_Std
+        WHERE s.Earned_Date IS NOT NULL AND p.YearMonth = '{selected_period}'
+        GROUP BY s.CustomerID_Std, c.CustomerName
+        ORDER BY revenue DESC
+    """).df()
+    _log_query_time("fetch_pareto_data", time.perf_counter() - _t0, 1)
+    return df
+
+
+@st.cache_data(ttl=300)
+def fetch_outstanding(_con):
+    """Fetch outstanding (Paid=FALSE, Source=CC_2025) order summary, aging, and top 20."""
+    _t0 = time.perf_counter()
+
+    summary = _con.execute("""
+        SELECT COUNT(*) AS order_count, COALESCE(SUM(Total_Num), 0) AS total_outstanding
+        FROM sales
+        WHERE Paid = FALSE AND Source = 'CC_2025' AND Earned_Date IS NOT NULL
+    """).fetchone()
+
+    top20_df = _con.execute("""
+        SELECT s.CustomerID_Std, c.CustomerName, s.OrderID_Std, s.Placed_Date, s.Total_Num,
+               DATEDIFF('day', s.Placed_Date, CURRENT_DATE) AS days_outstanding
+        FROM sales s JOIN customers c ON s.CustomerID_Std = c.CustomerID_Std
+        WHERE s.Paid = FALSE AND s.Source = 'CC_2025' AND s.Earned_Date IS NOT NULL
+        ORDER BY days_outstanding DESC LIMIT 20
+    """).df()
+
+    aging_df = _con.execute("""
+        SELECT CASE
+            WHEN DATEDIFF('day', Placed_Date, CURRENT_DATE) <= 30 THEN '0-30 days'
+            WHEN DATEDIFF('day', Placed_Date, CURRENT_DATE) <= 60 THEN '31-60 days'
+            WHEN DATEDIFF('day', Placed_Date, CURRENT_DATE) <= 90 THEN '61-90 days'
+            ELSE '90+ days' END AS bucket,
+            COUNT(*) AS orders, SUM(Total_Num) AS amount
+        FROM sales WHERE Paid = FALSE AND Source = 'CC_2025' AND Earned_Date IS NOT NULL
+        GROUP BY bucket ORDER BY MIN(DATEDIFF('day', Placed_Date, CURRENT_DATE))
+    """).df()
+
+    _log_query_time("fetch_outstanding", time.perf_counter() - _t0, 0)
+    return {
+        "order_count": int(summary[0]) if summary else 0,
+        "total_outstanding": float(summary[1]) if summary else 0.0,
+        "top20": top20_df,
+        "aging": aging_df,
+    }

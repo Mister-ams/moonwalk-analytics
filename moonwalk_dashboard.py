@@ -39,34 +39,21 @@ def _check_password():
 if not _check_password():
     st.stop()
 
-# Business Performance
-overview = st.Page("pages/overview.py", title="Overview", default=True)
-customers = st.Page("pages/customers.py", title="Customers")
-items_page = st.Page("pages/items.py", title="Items")
-revenues = st.Page("pages/revenues.py", title="Revenues")
-ci_overview = st.Page("pages/customer_insights.py", title="Customer Insights")
-customer_report = st.Page("pages/customer_report.py", title="Items per Customer")
-customer_report_revenue = st.Page("pages/customer_report_revenue.py", title="Revenue per Customer")
-new_customers_page = st.Page("pages/new_customers.py", title="New Customers")
-cohort_page = st.Page("pages/cohort.py", title="Cohort Analysis")
-
-# Operations
-operations_page = st.Page("pages/operations.py", title="Operations")
-logistics_page = st.Page("pages/logistics.py", title="Logistics")
-
-# Financials
-payments_page = st.Page("pages/payments.py", title="Payments")
+executive_pulse = st.Page("pages/executive_pulse.py", title="Executive Pulse", icon=":material/speed:", default=True)
+customer_analytics = st.Page("pages/customer_analytics.py", title="Customer Analytics", icon=":material/people:")
+operations_center = st.Page(
+    "pages/operations_center.py", title="Operations Center", icon=":material/local_laundry_service:"
+)
+financial_performance = st.Page(
+    "pages/financial_performance.py", title="Financial Performance", icon=":material/account_balance:"
+)
 
 page = st.navigation(
-    {
-        "Monthly Report": [overview, customers, items_page, revenues],
-        "Customer Intelligence": [
-            ci_overview, customer_report, customer_report_revenue,
-            new_customers_page, cohort_page,
-        ],
-        "Operations": [operations_page, logistics_page],
-        "Financials": [payments_page],
-    },
-    position="sidebar",
+    [
+        executive_pulse,
+        customer_analytics,
+        operations_center,
+        financial_performance,
+    ]
 )
 page.run()

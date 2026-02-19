@@ -38,6 +38,7 @@ def write_dashboard_profile(timings: dict) -> None:
     except (OSError, PermissionError):
         pass  # Skip profiling on read-only filesystem (cloud)
 
+
 # =====================================================================
 # DIRHAM SYMBOL (CBUAE official SVG, base64-encoded for inline use)
 # =====================================================================
@@ -116,6 +117,7 @@ def dirham_html(value, decimals=0, size=18):
 # CARD RENDERING
 # =====================================================================
 
+
 def change_html(current, previous, size="normal"):
     """Return HTML for a MoM change pill with colored background.
 
@@ -123,11 +125,13 @@ def change_html(current, previous, size="normal"):
         size -- "normal" (default) or "compact" for sub-metric rows
     """
     if size == "compact":
-        dash_style = 'font-size:0.7rem;color:#aaa;'
-        pill_style = 'font-size:0.65rem;font-weight:700;padding:0.1rem 0.4rem;border-radius:0.5rem;'
+        dash_style = "font-size:0.7rem;color:#aaa;"
+        pill_style = "font-size:0.65rem;font-weight:700;padding:0.1rem 0.4rem;border-radius:0.5rem;"
     else:
-        dash_style = 'font-size:0.8rem;color:#aaa;'
-        pill_style = 'font-size:0.8rem;font-weight:700;padding:0.2rem 0.6rem;border-radius:0.75rem;letter-spacing:0.02em;'
+        dash_style = "font-size:0.8rem;color:#aaa;"
+        pill_style = (
+            "font-size:0.8rem;font-weight:700;padding:0.2rem 0.6rem;border-radius:0.75rem;letter-spacing:0.02em;"
+        )
 
     if previous is None or previous == 0:
         return f'<span style="{dash_style}">&mdash;</span>'
@@ -138,11 +142,7 @@ def change_html(current, previous, size="normal"):
         arrow, bg, fg = "\u25bc", "#ef9a9a", "#b71c1c"
     else:
         arrow, bg, fg = "\u25a0", "#fff176", "#f57f17"
-    return (
-        f'<span style="display:inline-block;background:{bg};color:{fg};'
-        f'{pill_style}">'
-        f'{arrow} {pct:+.0f}%</span>'
-    )
+    return f'<span style="display:inline-block;background:{bg};color:{fg};{pill_style}">{arrow} {pct:+.0f}%</span>'
 
 
 def headline_card(label, value_html, change, header_color):
@@ -157,7 +157,7 @@ def headline_card(label, value_html, change, header_color):
         f'<div style="font-size:2rem;font-weight:700;color:#0e1117;'
         f'line-height:1.3;">{value_html}</div>'
         f'<div style="margin-top:0.2rem;">{change}</div>'
-        f'</div></div>'
+        f"</div></div>"
     )
 
 
@@ -173,7 +173,7 @@ def headline_card_with_subs(label, value_html, change, header_color, subs):
     """
     html = (
         f'<div class="headline-card-wrap" style="border-radius:0.75rem;overflow:hidden;'
-        f'background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.18);'
+        f"background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.18);"
         f'transition:transform 0.15s ease, box-shadow 0.15s ease;">'
         f'<div style="background:{header_color};padding:0.5rem 0;text-align:center;">'
         f'<span style="color:#fff;font-weight:700;font-size:0.95rem;'
@@ -182,12 +182,11 @@ def headline_card_with_subs(label, value_html, change, header_color, subs):
         f'<div style="font-size:2rem;font-weight:700;color:#0e1117;'
         f'line-height:1.3;">{value_html}</div>'
         f'<div style="margin-top:0.2rem;">{change}</div>'
-        f'</div>'
+        f"</div>"
     )
     if subs:
         html += (
-            '<div style="border-top:1px solid #eee;margin:0 0.5rem;"></div>'
-            '<div style="padding:0.3rem 0.6rem 0.5rem;">'
+            '<div style="border-top:1px solid #eee;margin:0 0.5rem;"></div><div style="padding:0.3rem 0.6rem 0.5rem;">'
         )
         for sub_label, sub_val, sub_chg in subs:
             html += (
@@ -195,17 +194,17 @@ def headline_card_with_subs(label, value_html, change, header_color, subs):
                 f'align-items:center;padding:0.2rem 0;">'
                 f'<span style="font-size:0.82rem;color:#666;">{sub_label}</span>'
                 f'<span style="font-size:0.95rem;font-weight:700;color:#0e1117;">'
-                f'{sub_val} {sub_chg}</span>'
-                f'</div>'
+                f"{sub_val} {sub_chg}</span>"
+                f"</div>"
             )
-        html += '</div>'
+        html += "</div>"
     # "View Details" footer cue
     html += (
         '<div style="border-top:1px solid #eee;margin:0 0.5rem;"></div>'
         '<div style="text-align:center;padding:0.3rem 0;color:#999;'
         'font-size:0.78rem;">View Details &rarr;</div>'
     )
-    html += '</div>'
+    html += "</div>"
     return html
 
 
@@ -213,14 +212,14 @@ def sub_card(label, value_html, change, bg_color):
     """Display-only sub-card with tinted background."""
     return (
         f'<div style="background:{bg_color};border-radius:0.4rem;'
-        f'padding:0.45rem 0.4rem;text-align:center;min-height:110px;'
-        f'box-shadow:0 2px 6px rgba(0,0,0,0.13);'
+        f"padding:0.45rem 0.4rem;text-align:center;min-height:110px;"
+        f"box-shadow:0 2px 6px rgba(0,0,0,0.13);"
         f'display:flex;flex-direction:column;justify-content:center;">'
         f'<div style="font-size:0.8rem;color:#555;font-weight:600;">{label}</div>'
         f'<div style="font-size:1.4rem;font-weight:700;color:#0e1117;'
         f'line-height:1.3;">{value_html}</div>'
         f'<div style="margin-top:0.15rem;">{change}</div>'
-        '</div>'
+        "</div>"
     )
 
 
@@ -245,9 +244,9 @@ def detail_card(title, rows, title_color, bg_color):
             f'align-items:center;padding:0.3rem 0.5rem;">'
             f'<span style="font-size:0.85rem;color:#555;font-weight:600;">{label}</span>'
             f'<span style="font-size:1.1rem;font-weight:700;">{value_html} {chg_html}</span>'
-            f'</div>'
+            f"</div>"
         )
-    html += '</div>'
+    html += "</div>"
     return html
 
 
@@ -257,114 +256,534 @@ def detail_card(title, rows, title_color, bg_color):
 
 COLORS = {
     # Primary — boldest treatment for the "money" metric
-    "revenues":          {"header": "#4A148C", "sub": "#F3F0F8"},
+    "revenues": {"header": "#4A148C", "sub": "#F3F0F8"},
     # Secondary — important but not financial
-    "customers":         {"header": "#00695C", "sub": "#F0F7F6"},
-    "items":             {"header": "#5D4037", "sub": "#F5F1EF"},
+    "customers": {"header": "#00695C", "sub": "#F0F7F6"},
+    "items": {"header": "#5D4037", "sub": "#F5F1EF"},
     # Tertiary — operational / analytical, neutral tones
-    "stops":             {"header": "#546E7A", "sub": "#F2F5F7"},
-    "customer_report":   {"header": "#795548", "sub": "#F5F1EF"},
+    "stops": {"header": "#546E7A", "sub": "#F2F5F7"},
+    "customer_report": {"header": "#795548", "sub": "#F5F1EF"},
     "customer_insights": {"header": "#795548", "sub": "#F5F1EF"},
-    "cohort":            {"header": "#2E7D32", "sub": "#F1F7F1"},
-    "logistics":         {"header": "#37474F", "sub": "#F2F4F5"},
-    "payments":          {"header": "#455A64", "sub": "#F2F4F5"},
+    "cohort": {"header": "#2E7D32", "sub": "#F1F7F1"},
+    "logistics": {"header": "#37474F", "sub": "#F2F4F5"},
+    "payments": {"header": "#455A64", "sub": "#F2F4F5"},
     # Accent — needs contrast for interactive selectors
-    "operations":        {"header": "#BF360C", "sub": "#FCF3F0"},
+    "operations": {"header": "#BF360C", "sub": "#FCF3F0"},
 }
 
 METRIC_CONFIG = {
-    "customers":    {"key": "customers",    "label": "Total Customers",     "category": "customers", "is_currency": False},
-    "items":        {"key": "items",        "label": "Total Items",         "category": "items",     "is_currency": False},
-    "revenues":     {"key": "revenues",     "label": "Total Revenue",       "category": "revenues",  "is_currency": True},
-    "stops":        {"key": "stops",        "label": "Total Stops",         "category": "stops",     "is_currency": False},
-    "clients":      {"key": "clients",      "label": "Clients",            "category": "customers", "is_currency": False},
-    "subscribers":  {"key": "subscribers",  "label": "Subscribers",         "category": "customers", "is_currency": False},
-    "items_client": {"key": "items_client", "label": "Client Items",        "category": "items",     "is_currency": False},
-    "items_sub":    {"key": "items_sub",    "label": "Subscriber Items",    "category": "items",     "is_currency": False},
-    "rev_client":   {"key": "rev_client",   "label": "Client Revenue",      "category": "revenues",  "is_currency": True},
-    "rev_sub":      {"key": "rev_sub",      "label": "Subscriber Revenue",  "category": "revenues",  "is_currency": True},
-    "deliveries":       {"key": "deliveries",       "label": "Deliveries",          "category": "stops",           "is_currency": False, "is_percentage": False},
-    "pickups":          {"key": "pickups",          "label": "Pickups",             "category": "stops",           "is_currency": False, "is_percentage": False},
-    "active_customers": {"key": "active_customers", "label": "Active Customers",    "category": "customer_report", "is_currency": False, "is_percentage": False},
-    "new_customers":    {"key": "new_customers",    "label": "New Customers",       "category": "customer_report", "is_currency": False, "is_percentage": False},
-    "new_customer_pct":         {"key": "new_customer_pct",         "label": "New Customer %",             "category": "customer_report", "is_currency": False, "is_percentage": True},
-    "items_per_customer":        {"key": "items_per_customer",        "label": "Items per Customer",         "category": "customer_report", "is_currency": False, "is_percentage": False, "is_ratio": True},
-    "sub_items_per_customer":    {"key": "sub_items_per_customer",    "label": "Items per Subscriber",       "category": "customer_report", "is_currency": False, "is_percentage": False, "is_ratio": True},
-    "client_items_per_customer": {"key": "client_items_per_customer", "label": "Items per Client",           "category": "customer_report", "is_currency": False, "is_percentage": False, "is_ratio": True},
-    "sub_items_pct":             {"key": "sub_items_pct",             "label": "Subscriber Items %",         "category": "customer_report", "is_currency": False, "is_percentage": True},
-    "cr_items_sub":              {"key": "cr_items_sub",              "label": "Subscriber Items",           "category": "customer_report", "is_currency": False, "is_percentage": False},
-    "cr_items_client":           {"key": "cr_items_client",           "label": "Client Items",               "category": "customer_report", "is_currency": False, "is_percentage": False},
-    "rev_per_customer":          {"key": "rev_per_customer",          "label": "Revenue per Customer",       "category": "customer_report", "is_currency": True},
-    "rev_per_client":            {"key": "rev_per_client",            "label": "Revenue per Client",         "category": "customer_report", "is_currency": True},
-    "rev_per_subscriber":        {"key": "rev_per_subscriber",        "label": "Revenue per Subscriber",     "category": "customer_report", "is_currency": True},
-    "existing_customers":        {"key": "existing_customers",        "label": "Existing Customers",         "category": "customer_report", "is_currency": False},
-    "new_items":                 {"key": "new_items",                 "label": "New Customer Items",         "category": "customer_report", "is_currency": False},
-    "existing_items":            {"key": "existing_items",            "label": "Existing Customer Items",    "category": "customer_report", "is_currency": False},
-    "new_revenue":               {"key": "new_revenue",               "label": "New Customer Revenue",       "category": "customer_report", "is_currency": True},
-    "existing_revenue":          {"key": "existing_revenue",          "label": "Existing Customer Revenue",  "category": "customer_report", "is_currency": True},
+    "customers": {"key": "customers", "label": "Total Customers", "category": "customers", "is_currency": False},
+    "items": {"key": "items", "label": "Total Items", "category": "items", "is_currency": False},
+    "revenues": {"key": "revenues", "label": "Total Revenue", "category": "revenues", "is_currency": True},
+    "stops": {"key": "stops", "label": "Total Stops", "category": "stops", "is_currency": False},
+    "clients": {"key": "clients", "label": "Clients", "category": "customers", "is_currency": False},
+    "subscribers": {"key": "subscribers", "label": "Subscribers", "category": "customers", "is_currency": False},
+    "items_client": {"key": "items_client", "label": "Client Items", "category": "items", "is_currency": False},
+    "items_sub": {"key": "items_sub", "label": "Subscriber Items", "category": "items", "is_currency": False},
+    "rev_client": {"key": "rev_client", "label": "Client Revenue", "category": "revenues", "is_currency": True},
+    "rev_sub": {"key": "rev_sub", "label": "Subscriber Revenue", "category": "revenues", "is_currency": True},
+    "deliveries": {
+        "key": "deliveries",
+        "label": "Deliveries",
+        "category": "stops",
+        "is_currency": False,
+        "is_percentage": False,
+    },
+    "pickups": {
+        "key": "pickups",
+        "label": "Pickups",
+        "category": "stops",
+        "is_currency": False,
+        "is_percentage": False,
+    },
+    "active_customers": {
+        "key": "active_customers",
+        "label": "Active Customers",
+        "category": "customer_report",
+        "is_currency": False,
+        "is_percentage": False,
+    },
+    "new_customers": {
+        "key": "new_customers",
+        "label": "New Customers",
+        "category": "customer_report",
+        "is_currency": False,
+        "is_percentage": False,
+    },
+    "new_customer_pct": {
+        "key": "new_customer_pct",
+        "label": "New Customer %",
+        "category": "customer_report",
+        "is_currency": False,
+        "is_percentage": True,
+    },
+    "items_per_customer": {
+        "key": "items_per_customer",
+        "label": "Items per Customer",
+        "category": "customer_report",
+        "is_currency": False,
+        "is_percentage": False,
+        "is_ratio": True,
+    },
+    "sub_items_per_customer": {
+        "key": "sub_items_per_customer",
+        "label": "Items per Subscriber",
+        "category": "customer_report",
+        "is_currency": False,
+        "is_percentage": False,
+        "is_ratio": True,
+    },
+    "client_items_per_customer": {
+        "key": "client_items_per_customer",
+        "label": "Items per Client",
+        "category": "customer_report",
+        "is_currency": False,
+        "is_percentage": False,
+        "is_ratio": True,
+    },
+    "sub_items_pct": {
+        "key": "sub_items_pct",
+        "label": "Subscriber Items %",
+        "category": "customer_report",
+        "is_currency": False,
+        "is_percentage": True,
+    },
+    "cr_items_sub": {
+        "key": "cr_items_sub",
+        "label": "Subscriber Items",
+        "category": "customer_report",
+        "is_currency": False,
+        "is_percentage": False,
+    },
+    "cr_items_client": {
+        "key": "cr_items_client",
+        "label": "Client Items",
+        "category": "customer_report",
+        "is_currency": False,
+        "is_percentage": False,
+    },
+    "rev_per_customer": {
+        "key": "rev_per_customer",
+        "label": "Revenue per Customer",
+        "category": "customer_report",
+        "is_currency": True,
+    },
+    "rev_per_client": {
+        "key": "rev_per_client",
+        "label": "Revenue per Client",
+        "category": "customer_report",
+        "is_currency": True,
+    },
+    "rev_per_subscriber": {
+        "key": "rev_per_subscriber",
+        "label": "Revenue per Subscriber",
+        "category": "customer_report",
+        "is_currency": True,
+    },
+    "existing_customers": {
+        "key": "existing_customers",
+        "label": "Existing Customers",
+        "category": "customer_report",
+        "is_currency": False,
+    },
+    "new_items": {
+        "key": "new_items",
+        "label": "New Customer Items",
+        "category": "customer_report",
+        "is_currency": False,
+    },
+    "existing_items": {
+        "key": "existing_items",
+        "label": "Existing Customer Items",
+        "category": "customer_report",
+        "is_currency": False,
+    },
+    "new_revenue": {
+        "key": "new_revenue",
+        "label": "New Customer Revenue",
+        "category": "customer_report",
+        "is_currency": True,
+    },
+    "existing_revenue": {
+        "key": "existing_revenue",
+        "label": "Existing Customer Revenue",
+        "category": "customer_report",
+        "is_currency": True,
+    },
     # 02 — Customer Insights
-    "ci_active_customers":   {"key": "ci_active_customers",   "label": "Active Customers",          "category": "customer_insights", "is_currency": False},
-    "ci_multi_service":      {"key": "ci_multi_service",      "label": "Multi Service Customers",   "category": "customer_insights", "is_currency": False},
-    "ci_spend_threshold":    {"key": "ci_spend_threshold",    "label": "Spend Threshold",           "category": "customer_insights", "is_currency": True},
-    "ci_top20_spend_rev":    {"key": "ci_top20_spend_rev",    "label": "Top 20% Revenue (Spend)",   "category": "customer_insights", "is_currency": True},
-    "ci_spend_share":        {"key": "ci_spend_share",        "label": "Revenue Share (Spend)",     "category": "customer_insights", "is_currency": False, "is_percentage": True},
-    "ci_volume_threshold":   {"key": "ci_volume_threshold",   "label": "Volume Threshold",          "category": "customer_insights", "is_currency": False},
-    "ci_top20_vol_rev":      {"key": "ci_top20_vol_rev",      "label": "Top 20% Revenue (Volume)",  "category": "customer_insights", "is_currency": True},
-    "ci_volume_share":       {"key": "ci_volume_share",       "label": "Revenue Share (Volume)",    "category": "customer_insights", "is_currency": False, "is_percentage": True},
+    "ci_active_customers": {
+        "key": "ci_active_customers",
+        "label": "Active Customers",
+        "category": "customer_insights",
+        "is_currency": False,
+    },
+    "ci_multi_service": {
+        "key": "ci_multi_service",
+        "label": "Multi Service Customers",
+        "category": "customer_insights",
+        "is_currency": False,
+    },
+    "ci_spend_threshold": {
+        "key": "ci_spend_threshold",
+        "label": "Spend Threshold",
+        "category": "customer_insights",
+        "is_currency": True,
+    },
+    "ci_top20_spend_rev": {
+        "key": "ci_top20_spend_rev",
+        "label": "Top 20% Revenue (Spend)",
+        "category": "customer_insights",
+        "is_currency": True,
+    },
+    "ci_spend_share": {
+        "key": "ci_spend_share",
+        "label": "Revenue Share (Spend)",
+        "category": "customer_insights",
+        "is_currency": False,
+        "is_percentage": True,
+    },
+    "ci_volume_threshold": {
+        "key": "ci_volume_threshold",
+        "label": "Volume Threshold",
+        "category": "customer_insights",
+        "is_currency": False,
+    },
+    "ci_top20_vol_rev": {
+        "key": "ci_top20_vol_rev",
+        "label": "Top 20% Revenue (Volume)",
+        "category": "customer_insights",
+        "is_currency": True,
+    },
+    "ci_volume_share": {
+        "key": "ci_volume_share",
+        "label": "Revenue Share (Volume)",
+        "category": "customer_insights",
+        "is_currency": False,
+        "is_percentage": True,
+    },
     # 03 — Cohort Analysis
-    "m0_customers":          {"key": "m0_customers",          "label": "M0 Customers",              "category": "cohort", "is_currency": False},
-    "m0_items":              {"key": "m0_items",              "label": "M0 Items",                  "category": "cohort", "is_currency": False},
-    "m0_revenue":            {"key": "m0_revenue",            "label": "M0 Revenue",                "category": "cohort", "is_currency": True},
-    "m0_rev_per_customer":   {"key": "m0_rev_per_customer",   "label": "M0 Rev/Customer",           "category": "cohort", "is_currency": True},
-    "m0_items_per_customer": {"key": "m0_items_per_customer", "label": "M0 Items/Customer",         "category": "cohort", "is_currency": False, "is_ratio": True},
-    "m1_customers":          {"key": "m1_customers",          "label": "M1 Customers",              "category": "cohort", "is_currency": False},
-    "m1_items":              {"key": "m1_items",              "label": "M1 Items",                  "category": "cohort", "is_currency": False},
-    "m1_revenue":            {"key": "m1_revenue",            "label": "M1 Revenue",                "category": "cohort", "is_currency": True},
-    "m1_rev_per_customer":   {"key": "m1_rev_per_customer",   "label": "M1 Rev/Customer",           "category": "cohort", "is_currency": True},
-    "m1_items_per_customer": {"key": "m1_items_per_customer", "label": "M1 Items/Customer",         "category": "cohort", "is_currency": False, "is_ratio": True},
+    "m0_customers": {"key": "m0_customers", "label": "M0 Customers", "category": "cohort", "is_currency": False},
+    "m0_items": {"key": "m0_items", "label": "M0 Items", "category": "cohort", "is_currency": False},
+    "m0_revenue": {"key": "m0_revenue", "label": "M0 Revenue", "category": "cohort", "is_currency": True},
+    "m0_rev_per_customer": {
+        "key": "m0_rev_per_customer",
+        "label": "M0 Rev/Customer",
+        "category": "cohort",
+        "is_currency": True,
+    },
+    "m0_items_per_customer": {
+        "key": "m0_items_per_customer",
+        "label": "M0 Items/Customer",
+        "category": "cohort",
+        "is_currency": False,
+        "is_ratio": True,
+    },
+    "m1_customers": {"key": "m1_customers", "label": "M1 Customers", "category": "cohort", "is_currency": False},
+    "m1_items": {"key": "m1_items", "label": "M1 Items", "category": "cohort", "is_currency": False},
+    "m1_revenue": {"key": "m1_revenue", "label": "M1 Revenue", "category": "cohort", "is_currency": True},
+    "m1_rev_per_customer": {
+        "key": "m1_rev_per_customer",
+        "label": "M1 Rev/Customer",
+        "category": "cohort",
+        "is_currency": True,
+    },
+    "m1_items_per_customer": {
+        "key": "m1_items_per_customer",
+        "label": "M1 Items/Customer",
+        "category": "cohort",
+        "is_currency": False,
+        "is_ratio": True,
+    },
     # 04 — Logistics
-    "lg_total_stops":        {"key": "lg_total_stops",        "label": "Total Stops",               "category": "logistics", "is_currency": False},
-    "lg_items_delivered":    {"key": "lg_items_delivered",    "label": "Items Delivered",            "category": "logistics", "is_currency": False},
-    "lg_delivery_rev_pct":   {"key": "lg_delivery_rev_pct",  "label": "Delivery Rev %",             "category": "logistics", "is_currency": False, "is_percentage": True},
-    "lg_delivery_rate":      {"key": "lg_delivery_rate",     "label": "Delivery Rate %",            "category": "logistics", "is_currency": False, "is_percentage": True},
-    "lg_deliveries":         {"key": "lg_deliveries",        "label": "Deliveries",                 "category": "logistics", "is_currency": False},
-    "lg_pickups":            {"key": "lg_pickups",           "label": "Pickups",                    "category": "logistics", "is_currency": False},
+    "lg_total_stops": {"key": "lg_total_stops", "label": "Total Stops", "category": "logistics", "is_currency": False},
+    "lg_items_delivered": {
+        "key": "lg_items_delivered",
+        "label": "Items Delivered",
+        "category": "logistics",
+        "is_currency": False,
+    },
+    "lg_delivery_rev_pct": {
+        "key": "lg_delivery_rev_pct",
+        "label": "Delivery Rev %",
+        "category": "logistics",
+        "is_currency": False,
+        "is_percentage": True,
+    },
+    "lg_delivery_rate": {
+        "key": "lg_delivery_rate",
+        "label": "Delivery Rate %",
+        "category": "logistics",
+        "is_currency": False,
+        "is_percentage": True,
+    },
+    "lg_deliveries": {"key": "lg_deliveries", "label": "Deliveries", "category": "logistics", "is_currency": False},
+    "lg_pickups": {"key": "lg_pickups", "label": "Pickups", "category": "logistics", "is_currency": False},
     # 06 — Payments
-    "pm_revenue":            {"key": "pm_revenue",            "label": "Revenues",                  "category": "payments", "is_currency": True},
-    "pm_total_collections":  {"key": "pm_total_collections",  "label": "Total Collections",         "category": "payments", "is_currency": True},
-    "pm_stripe":             {"key": "pm_stripe",             "label": "Stripe",                    "category": "payments", "is_currency": True},
-    "pm_terminal":           {"key": "pm_terminal",           "label": "Terminal",                  "category": "payments", "is_currency": True},
-    "pm_cash":                {"key": "pm_cash",                "label": "Cash",                      "category": "payments", "is_currency": True},
-    "pm_avg_days_to_payment": {"key": "pm_avg_days_to_payment","label": "Avg Days To Payment",      "category": "payments", "is_currency": False, "is_ratio": True},
+    "pm_revenue": {"key": "pm_revenue", "label": "Revenues", "category": "payments", "is_currency": True},
+    "pm_total_collections": {
+        "key": "pm_total_collections",
+        "label": "Total Collections",
+        "category": "payments",
+        "is_currency": True,
+    },
+    "pm_stripe": {"key": "pm_stripe", "label": "Stripe", "category": "payments", "is_currency": True},
+    "pm_terminal": {"key": "pm_terminal", "label": "Terminal", "category": "payments", "is_currency": True},
+    "pm_cash": {"key": "pm_cash", "label": "Cash", "category": "payments", "is_currency": True},
+    "pm_avg_days_to_payment": {
+        "key": "pm_avg_days_to_payment",
+        "label": "Avg Days To Payment",
+        "category": "payments",
+        "is_currency": False,
+        "is_ratio": True,
+    },
     # 05 — Operations: processing efficiency
-    "ops_avg_processing_time": {"key": "ops_avg_processing_time", "label": "Avg Processing Time", "category": "operations", "is_currency": False, "is_ratio": True},
-    "ops_avg_time_in_store":   {"key": "ops_avg_time_in_store",   "label": "Avg Time In Store",   "category": "operations", "is_currency": False, "is_ratio": True},
+    "ops_avg_processing_time": {
+        "key": "ops_avg_processing_time",
+        "label": "Avg Processing Time",
+        "category": "operations",
+        "is_currency": False,
+        "is_ratio": True,
+    },
+    "ops_avg_time_in_store": {
+        "key": "ops_avg_time_in_store",
+        "label": "Avg Time In Store",
+        "category": "operations",
+        "is_currency": False,
+        "is_ratio": True,
+    },
     # 05 — Operations: category breakdowns (5 categories x 2 metrics)
-    "cat_professional_wear_items": {"key": "cat_professional_wear_items", "label": "Professional Wear Items",   "category": "operations", "is_currency": False},
-    "cat_professional_wear_rev":   {"key": "cat_professional_wear_rev",   "label": "Professional Wear Revenue", "category": "operations", "is_currency": True},
-    "cat_traditional_wear_items":  {"key": "cat_traditional_wear_items",  "label": "Traditional Wear Items",    "category": "operations", "is_currency": False},
-    "cat_traditional_wear_rev":    {"key": "cat_traditional_wear_rev",    "label": "Traditional Wear Revenue",  "category": "operations", "is_currency": True},
-    "cat_home_linens_items":       {"key": "cat_home_linens_items",       "label": "Home Linens Items",         "category": "operations", "is_currency": False},
-    "cat_home_linens_rev":         {"key": "cat_home_linens_rev",         "label": "Home Linens Revenue",       "category": "operations", "is_currency": True},
-    "cat_extras_items":            {"key": "cat_extras_items",            "label": "Extras Items",              "category": "operations", "is_currency": False},
-    "cat_extras_rev":              {"key": "cat_extras_rev",              "label": "Extras Revenue",            "category": "operations", "is_currency": True},
-    "cat_others_items":            {"key": "cat_others_items",            "label": "Others Items",              "category": "operations", "is_currency": False},
-    "cat_others_rev":              {"key": "cat_others_rev",              "label": "Others Revenue",            "category": "operations", "is_currency": True},
+    "cat_professional_wear_items": {
+        "key": "cat_professional_wear_items",
+        "label": "Professional Wear Items",
+        "category": "operations",
+        "is_currency": False,
+    },
+    "cat_professional_wear_rev": {
+        "key": "cat_professional_wear_rev",
+        "label": "Professional Wear Revenue",
+        "category": "operations",
+        "is_currency": True,
+    },
+    "cat_traditional_wear_items": {
+        "key": "cat_traditional_wear_items",
+        "label": "Traditional Wear Items",
+        "category": "operations",
+        "is_currency": False,
+    },
+    "cat_traditional_wear_rev": {
+        "key": "cat_traditional_wear_rev",
+        "label": "Traditional Wear Revenue",
+        "category": "operations",
+        "is_currency": True,
+    },
+    "cat_home_linens_items": {
+        "key": "cat_home_linens_items",
+        "label": "Home Linens Items",
+        "category": "operations",
+        "is_currency": False,
+    },
+    "cat_home_linens_rev": {
+        "key": "cat_home_linens_rev",
+        "label": "Home Linens Revenue",
+        "category": "operations",
+        "is_currency": True,
+    },
+    "cat_extras_items": {
+        "key": "cat_extras_items",
+        "label": "Extras Items",
+        "category": "operations",
+        "is_currency": False,
+    },
+    "cat_extras_rev": {
+        "key": "cat_extras_rev",
+        "label": "Extras Revenue",
+        "category": "operations",
+        "is_currency": True,
+    },
+    "cat_others_items": {
+        "key": "cat_others_items",
+        "label": "Others Items",
+        "category": "operations",
+        "is_currency": False,
+    },
+    "cat_others_rev": {
+        "key": "cat_others_rev",
+        "label": "Others Revenue",
+        "category": "operations",
+        "is_currency": True,
+    },
     # 05 — Operations: service type breakdowns (4 services x 2 metrics)
-    "svc_wash_and_press_items":    {"key": "svc_wash_and_press_items",    "label": "Wash & Press Items",        "category": "operations", "is_currency": False},
-    "svc_wash_and_press_rev":      {"key": "svc_wash_and_press_rev",      "label": "Wash & Press Revenue",      "category": "operations", "is_currency": True},
-    "svc_dry_cleaning_items":      {"key": "svc_dry_cleaning_items",      "label": "Dry Cleaning Items",        "category": "operations", "is_currency": False},
-    "svc_dry_cleaning_rev":        {"key": "svc_dry_cleaning_rev",        "label": "Dry Cleaning Revenue",      "category": "operations", "is_currency": True},
-    "svc_press_only_items":        {"key": "svc_press_only_items",        "label": "Press Only Items",          "category": "operations", "is_currency": False},
-    "svc_press_only_rev":          {"key": "svc_press_only_rev",          "label": "Press Only Revenue",        "category": "operations", "is_currency": True},
-    "svc_other_service_items":     {"key": "svc_other_service_items",     "label": "Other Service Items",       "category": "operations", "is_currency": False},
-    "svc_other_service_rev":       {"key": "svc_other_service_rev",       "label": "Other Service Revenue",     "category": "operations", "is_currency": True},
+    "svc_wash_and_press_items": {
+        "key": "svc_wash_and_press_items",
+        "label": "Wash & Press Items",
+        "category": "operations",
+        "is_currency": False,
+    },
+    "svc_wash_and_press_rev": {
+        "key": "svc_wash_and_press_rev",
+        "label": "Wash & Press Revenue",
+        "category": "operations",
+        "is_currency": True,
+    },
+    "svc_dry_cleaning_items": {
+        "key": "svc_dry_cleaning_items",
+        "label": "Dry Cleaning Items",
+        "category": "operations",
+        "is_currency": False,
+    },
+    "svc_dry_cleaning_rev": {
+        "key": "svc_dry_cleaning_rev",
+        "label": "Dry Cleaning Revenue",
+        "category": "operations",
+        "is_currency": True,
+    },
+    "svc_press_only_items": {
+        "key": "svc_press_only_items",
+        "label": "Press Only Items",
+        "category": "operations",
+        "is_currency": False,
+    },
+    "svc_press_only_rev": {
+        "key": "svc_press_only_rev",
+        "label": "Press Only Revenue",
+        "category": "operations",
+        "is_currency": True,
+    },
+    "svc_other_service_items": {
+        "key": "svc_other_service_items",
+        "label": "Other Service Items",
+        "category": "operations",
+        "is_currency": False,
+    },
+    "svc_other_service_rev": {
+        "key": "svc_other_service_rev",
+        "label": "Other Service Revenue",
+        "category": "operations",
+        "is_currency": True,
+    },
+    # Extended cohort (M2/M3)
+    "m2_customers": {
+        "key": "m2_customers",
+        "label": "M2 Customers",
+        "category": "cohort",
+        "is_currency": False,
+        "is_percentage": False,
+        "is_ratio": False,
+    },
+    "m2_items": {
+        "key": "m2_items",
+        "label": "M2 Items",
+        "category": "cohort",
+        "is_currency": False,
+        "is_percentage": False,
+        "is_ratio": False,
+    },
+    "m2_revenue": {
+        "key": "m2_revenue",
+        "label": "M2 Revenue",
+        "category": "cohort",
+        "is_currency": True,
+        "is_percentage": False,
+        "is_ratio": False,
+    },
+    "m2_rev_per_customer": {
+        "key": "m2_rev_per_customer",
+        "label": "M2 Rev/Customer",
+        "category": "cohort",
+        "is_currency": True,
+        "is_percentage": False,
+        "is_ratio": False,
+    },
+    "m2_items_per_customer": {
+        "key": "m2_items_per_customer",
+        "label": "M2 Items/Customer",
+        "category": "cohort",
+        "is_currency": False,
+        "is_percentage": False,
+        "is_ratio": True,
+    },
+    "m3_customers": {
+        "key": "m3_customers",
+        "label": "M3 Customers",
+        "category": "cohort",
+        "is_currency": False,
+        "is_percentage": False,
+        "is_ratio": False,
+    },
+    "m3_items": {
+        "key": "m3_items",
+        "label": "M3 Items",
+        "category": "cohort",
+        "is_currency": False,
+        "is_percentage": False,
+        "is_ratio": False,
+    },
+    "m3_revenue": {
+        "key": "m3_revenue",
+        "label": "M3 Revenue",
+        "category": "cohort",
+        "is_currency": True,
+        "is_percentage": False,
+        "is_ratio": False,
+    },
+    "m3_rev_per_customer": {
+        "key": "m3_rev_per_customer",
+        "label": "M3 Rev/Customer",
+        "category": "cohort",
+        "is_currency": True,
+        "is_percentage": False,
+        "is_ratio": False,
+    },
+    "m3_items_per_customer": {
+        "key": "m3_items_per_customer",
+        "label": "M3 Items/Customer",
+        "category": "cohort",
+        "is_currency": False,
+        "is_percentage": False,
+        "is_ratio": True,
+    },
+    # Reactivation
+    "reactivated_customers": {
+        "key": "reactivated_customers",
+        "label": "Reactivated",
+        "category": "customers",
+        "is_currency": False,
+        "is_percentage": False,
+        "is_ratio": False,
+    },
+    # Executive Pulse
+    "aov": {
+        "key": "aov",
+        "label": "Avg Order Value",
+        "category": "revenues",
+        "is_currency": True,
+        "is_percentage": False,
+        "is_ratio": False,
+    },
+    # Operations extensions
+    "express_share": {
+        "key": "express_share",
+        "label": "Express Share",
+        "category": "operations",
+        "is_currency": False,
+        "is_percentage": True,
+        "is_ratio": False,
+    },
+    "lg_rev_per_delivery": {
+        "key": "lg_rev_per_delivery",
+        "label": "Rev per Delivery",
+        "category": "logistics",
+        "is_currency": True,
+        "is_percentage": False,
+        "is_ratio": False,
+    },
 }
 
 
 # =====================================================================
 # FORMAT HELPERS
 # =====================================================================
+
 
 def fmt_count(v):
     """Format numeric value with thousand separators."""
@@ -413,6 +832,7 @@ def is_weekly(period_str):
 # DATABASE CONNECTION
 # =====================================================================
 
+
 @st.cache_resource
 def get_connection():
     """Open the file-based analytics DuckDB (with indexes & views).
@@ -420,7 +840,7 @@ def get_connection():
     Falls back to in-memory CSV ingestion if the .duckdb file is missing
     or corrupted.  Shows st.error + st.stop if no data source is available.
     """
-    db_tmp = DB_PATH.with_suffix('.duckdb.tmp')
+    db_tmp = DB_PATH.with_suffix(".duckdb.tmp")
     db_file = None
 
     if DB_PATH.exists() and db_tmp.exists():
@@ -434,8 +854,8 @@ def get_connection():
     if db_file:
         try:
             if DUCKDB_KEY:
-                db_path_str = str(db_file).replace('\\', '/')
-                con = duckdb.connect(':memory:')
+                db_path_str = str(db_file).replace("\\", "/")
+                con = duckdb.connect(":memory:")
                 con.execute(f"ATTACH '{db_path_str}' AS db (ENCRYPTION_KEY '{DUCKDB_KEY}', READ_ONLY)")
                 con.execute("USE db")
             else:
@@ -481,6 +901,7 @@ def get_connection():
 # MEASURES
 # =====================================================================
 
+
 def get_grain_context(period_or_periods):
     """Return dict with period_col and sales_join for current grain."""
     sample = period_or_periods[0] if isinstance(period_or_periods, (list, tuple)) else period_or_periods
@@ -496,7 +917,8 @@ def fetch_measures(con, period):
     ctx = get_grain_context(period)
     period_col, sales_join = ctx["period_col"], ctx["sales_join"]
 
-    cust_row = con.execute(f"""
+    cust_row = con.execute(
+        f"""
         SELECT
             COUNT(DISTINCT s.CustomerID_Std),
             COUNT(DISTINCT CASE
@@ -507,12 +929,15 @@ def fetch_measures(con, period):
         WHERE s.Transaction_Type <> 'Invoice Payment'
           AND s.Earned_Date IS NOT NULL
           AND {period_col} = $1
-    """, [period]).fetchone()
+    """,
+        [period],
+    ).fetchone()
     customers = int(cust_row[0])
     subscribers = int(cust_row[1])
     clients = customers - subscribers
 
-    items_row = con.execute(f"""
+    items_row = con.execute(
+        f"""
         SELECT
             COALESCE(SUM(sub.qty), 0),
             COALESCE(SUM(CASE WHEN sub.iss = 0 THEN sub.qty END), 0),
@@ -525,12 +950,15 @@ def fetch_measures(con, period):
             LEFT JOIN order_lookup ol ON i.OrderID_Std = ol.OrderID_Std
             WHERE {period_col} = $1
         ) sub
-    """, [period]).fetchone()
+    """,
+        [period],
+    ).fetchone()
     items_total = int(items_row[0])
     items_client = int(items_row[1])
     items_sub = int(items_row[2])
 
-    rev_row = con.execute(f"""
+    rev_row = con.execute(
+        f"""
         SELECT
             COALESCE(SUM(s.Total_Num), 0),
             COALESCE(SUM(CASE
@@ -544,12 +972,15 @@ def fetch_measures(con, period):
         JOIN dim_period p ON {sales_join}
         WHERE s.Earned_Date IS NOT NULL
           AND {period_col} = $1
-    """, [period]).fetchone()
+    """,
+        [period],
+    ).fetchone()
     rev_total = float(rev_row[0])
     rev_client = float(rev_row[1])
     rev_sub = float(rev_row[2])
 
-    stops_row = con.execute(f"""
+    stops_row = con.execute(
+        f"""
         SELECT
             COALESCE(SUM(s.HasDelivery), 0),
             COALESCE(SUM(s.HasPickup), 0)
@@ -557,15 +988,25 @@ def fetch_measures(con, period):
         JOIN dim_period p ON {sales_join}
         WHERE s.Earned_Date IS NOT NULL
           AND {period_col} = $1
-    """, [period]).fetchone()
+    """,
+        [period],
+    ).fetchone()
     deliveries = int(stops_row[0])
     pickups = int(stops_row[1])
 
     return {
-        "customers": customers, "clients": clients, "subscribers": subscribers,
-        "items": items_total, "items_client": items_client, "items_sub": items_sub,
-        "revenues": rev_total, "rev_client": rev_client, "rev_sub": rev_sub,
-        "deliveries": deliveries, "pickups": pickups, "stops": deliveries + pickups,
+        "customers": customers,
+        "clients": clients,
+        "subscribers": subscribers,
+        "items": items_total,
+        "items_client": items_client,
+        "items_sub": items_sub,
+        "revenues": rev_total,
+        "rev_client": rev_client,
+        "rev_sub": rev_sub,
+        "deliveries": deliveries,
+        "pickups": pickups,
+        "stops": deliveries + pickups,
     }
 
 
@@ -657,12 +1098,17 @@ def fetch_measures_batch(_con, periods_tuple):
         pickups = int(s_row["pickups"].iloc[0]) if len(s_row) else 0
 
         result[p] = {
-            "customers": customers, "clients": customers - subscribers,
+            "customers": customers,
+            "clients": customers - subscribers,
             "subscribers": subscribers,
-            "items": items_total, "items_client": items_client,
+            "items": items_total,
+            "items_client": items_client,
             "items_sub": items_sub,
-            "revenues": rev_total, "rev_client": rev_client, "rev_sub": rev_sub,
-            "deliveries": deliveries, "pickups": pickups,
+            "revenues": rev_total,
+            "rev_client": rev_client,
+            "rev_sub": rev_sub,
+            "deliveries": deliveries,
+            "pickups": pickups,
             "stops": deliveries + pickups,
         }
     _log_query_time("fetch_measures_batch", time.perf_counter() - _t0, len(periods))
@@ -672,6 +1118,7 @@ def fetch_measures_batch(_con, periods_tuple):
 # =====================================================================
 # TREND CHART
 # =====================================================================
+
 
 def format_period_label(period):
     """Format a period string for display. Monthly: 'Feb 2025', Weekly: '3 Feb '26'."""
@@ -693,7 +1140,7 @@ def get_display_window(selected_period, available_periods):
     count = 13 if is_weekly(selected_period) else 6
     idx = available_periods.index(selected_period)
     start = max(0, idx - (count - 1))
-    return available_periods[start:idx + 1]
+    return available_periods[start : idx + 1]
 
 
 # Backward compatibility
@@ -708,9 +1155,9 @@ def compute_fetch_periods(selected_period, available_periods):
     return window, fetch_periods
 
 
-def render_trend_chart_v2(active_key, trend_data, display_periods,
-                          available_periods, config, bar_color,
-                          show_title=True, height=400):
+def render_trend_chart_v2(
+    active_key, trend_data, display_periods, available_periods, config, bar_color, show_title=True, height=400
+):
     """V2 chart: period-over-period annotations below date labels.
 
     Compact charts (height < 400) hide below-bar annotations and show
@@ -754,20 +1201,22 @@ def render_trend_chart_v2(active_key, trend_data, display_periods,
         else:
             mom_texts.append("--")
 
-    hover_template = (
-        "<b>%{x}</b><br>%{text}<br>MoM: %{customdata}<extra></extra>"
-        if not show_annotations else None
-    )
+    hover_template = "<b>%{x}</b><br>%{text}<br>MoM: %{customdata}<extra></extra>" if not show_annotations else None
 
-    fig = go.Figure(go.Bar(
-        x=labels, y=values,
-        text=text_labels, textposition="outside",
-        textfont=dict(size=bar_text_size, weight=700),
-        marker_color=bar_color, marker_line=dict(width=0),
-        cliponaxis=False,
-        customdata=mom_texts if not show_annotations else None,
-        hovertemplate=hover_template,
-    ))
+    fig = go.Figure(
+        go.Bar(
+            x=labels,
+            y=values,
+            text=text_labels,
+            textposition="outside",
+            textfont=dict(size=bar_text_size, weight=700),
+            marker_color=bar_color,
+            marker_line=dict(width=0),
+            cliponaxis=False,
+            customdata=mom_texts if not show_annotations else None,
+            hovertemplate=hover_template,
+        )
+    )
 
     if show_annotations:
         for i, m in enumerate(display_periods):
@@ -790,9 +1239,13 @@ def render_trend_chart_v2(active_key, trend_data, display_periods,
                 fg = "#999"
 
             fig.add_annotation(
-                x=labels[i], y=-0.22, text=ann_text, showarrow=False,
+                x=labels[i],
+                y=-0.22,
+                text=ann_text,
+                showarrow=False,
                 font=dict(size=ann_text_size, color=fg),
-                xref="x", yref="paper",
+                xref="x",
+                yref="paper",
             )
 
     top_margin = 70 if show_title else 45
@@ -804,34 +1257,215 @@ def render_trend_chart_v2(active_key, trend_data, display_periods,
         margin=dict(t=top_margin, b=bot_margin, l=50, r=30),
         paper_bgcolor="#ffffff",
         plot_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(tickfont=dict(size=10 if weekly else 12), tickmode="array",
-                   tickvals=labels, ticktext=labels,
-                   tickangle=-45 if weekly else 0,
-                   fixedrange=True),
-        yaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.06)",
-                   tickfont=dict(size=11),
-                   tickformat=".0%" if is_percentage else (".1f" if is_ratio else ""),
-                   tickprefix="" if (is_percentage or is_ratio) else ("Dhs " if is_currency else ""),
-                   rangemode="tozero",
-                   fixedrange=True),
+        xaxis=dict(
+            tickfont=dict(size=10 if weekly else 12),
+            tickmode="array",
+            tickvals=labels,
+            ticktext=labels,
+            tickangle=-45 if weekly else 0,
+            fixedrange=True,
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor="rgba(0,0,0,0.06)",
+            tickfont=dict(size=11),
+            tickformat=".0%" if is_percentage else (".1f" if is_ratio else ""),
+            tickprefix="" if (is_percentage or is_ratio) else ("Dhs " if is_currency else ""),
+            rangemode="tozero",
+            fixedrange=True,
+        ),
         bargap=0.25 if weekly else 0.35,
         dragmode=False,
     )
 
-    st.plotly_chart(fig, key=f"chart_v2_{active_key}",
-                    use_container_width=True,
-                    config={"displayModeBar": False,
-                            "scrollZoom": False,
-                            "staticPlot": False})
+    st.plotly_chart(
+        fig,
+        key=f"chart_v2_{active_key}",
+        use_container_width=True,
+        config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False},
+    )
+
+
+def render_trend_chart_v3(
+    active_key,
+    trend_data,
+    display_periods,
+    available_periods,
+    config,
+    bar_color,
+    show_title=True,
+    height=400,
+    yoy_data=None,
+    moving_avg_periods=None,
+):
+    """V3 chart: identical to v2 plus optional YoY overlay and moving average overlay.
+
+    Parameters:
+        yoy_data          -- dict same structure as trend_data but for prior year periods
+        moving_avg_periods -- int: compute N-period rolling mean and overlay as dashed orange line
+    """
+    metric_key = config["key"]
+    is_currency = config["is_currency"]
+    is_percentage = config.get("is_percentage", False)
+    is_ratio = config.get("is_ratio", False)
+
+    labels = [format_period_label(m) for m in display_periods]
+    values = [trend_data.get(m, {}).get(metric_key, 0) for m in display_periods]
+
+    if is_percentage:
+        text_labels = [fmt_pct(v) for v in values]
+    elif is_ratio:
+        text_labels = [fmt_ratio(v) for v in values]
+    elif is_currency:
+        text_labels = [fmt_dirham(v) for v in values]
+    else:
+        text_labels = [f"{v:,}" for v in values]
+
+    weekly = len(display_periods) > 6
+    bar_text_size = 10 if weekly else 13
+    ann_text_size = 10 if weekly else 13
+    show_annotations = height >= 400
+
+    mom_texts = []
+    for i, m in enumerate(display_periods):
+        val = values[i]
+        m_idx = available_periods.index(m) if m in available_periods else -1
+        prev_m = available_periods[m_idx - 1] if m_idx > 0 else None
+        prev_val = trend_data.get(prev_m, {}).get(metric_key) if prev_m else None
+        if prev_val is not None and prev_val != 0:
+            pct = (val - prev_val) / abs(prev_val) * 100
+            mom_texts.append(f"{pct:+.0f}%")
+        else:
+            mom_texts.append("--")
+
+    hover_template = "<b>%{x}</b><br>%{text}<br>MoM: %{customdata}<extra></extra>" if not show_annotations else None
+
+    fig = go.Figure(
+        go.Bar(
+            x=labels,
+            y=values,
+            text=text_labels,
+            textposition="outside",
+            textfont=dict(size=bar_text_size, weight=700),
+            marker_color=bar_color,
+            marker_line=dict(width=0),
+            cliponaxis=False,
+            customdata=mom_texts if not show_annotations else None,
+            hovertemplate=hover_template,
+        )
+    )
+
+    if show_annotations:
+        for i, m in enumerate(display_periods):
+            val = values[i]
+            m_idx = available_periods.index(m) if m in available_periods else -1
+            prev_m = available_periods[m_idx - 1] if m_idx > 0 else None
+            prev_val = trend_data.get(prev_m, {}).get(metric_key) if prev_m else None
+
+            if prev_val is not None and prev_val != 0:
+                pct = (val - prev_val) / abs(prev_val) * 100
+                if pct > 0.5:
+                    arrow, fg = "\u25b2", "#1b5e20"
+                elif pct < -0.5:
+                    arrow, fg = "\u25bc", "#b71c1c"
+                else:
+                    arrow, fg = "\u25a0", "#f57f17"
+                ann_text = f"<b>{arrow} {pct:+.0f}%</b>"
+            else:
+                ann_text = "\u2014"
+                fg = "#999"
+
+            fig.add_annotation(
+                x=labels[i],
+                y=-0.22,
+                text=ann_text,
+                showarrow=False,
+                font=dict(size=ann_text_size, color=fg),
+                xref="x",
+                yref="paper",
+            )
+
+    # YoY overlay
+    if yoy_data:
+        yoy_vals = [yoy_data.get(m, {}).get(metric_key) for m in display_periods]
+        valid = [(format_period_label(m), v) for m, v in zip(display_periods, yoy_vals) if v is not None]
+        if valid:
+            fig.add_trace(
+                go.Scatter(
+                    x=[x for x, _ in valid],
+                    y=[v for _, v in valid],
+                    mode="lines+markers",
+                    name="Prior Year",
+                    line=dict(color="#BDBDBD", width=1.5, dash="dash"),
+                    marker=dict(size=4, color="#BDBDBD"),
+                    hovertemplate="Prior Year: %{y}<extra></extra>",
+                )
+            )
+
+    # Moving average overlay
+    if moving_avg_periods and len(values) >= 2:
+        import pandas as _pd
+
+        ma = _pd.Series(values).rolling(moving_avg_periods, min_periods=1).mean().tolist()
+        fig.add_trace(
+            go.Scatter(
+                x=labels,
+                y=ma,
+                mode="lines",
+                name=f"{moving_avg_periods}P Avg",
+                line=dict(color="#FF8F00", width=2, dash="dot"),
+                hovertemplate=f"{moving_avg_periods}P Avg: %{{y:.0f}}<extra></extra>",
+            )
+        )
+
+    top_margin = 70 if show_title else 45
+    bot_margin = 60 if not show_annotations else 110
+
+    fig.update_layout(
+        title=dict(text=config["label"], font=dict(size=16, weight=700)) if show_title else dict(text=""),
+        height=height,
+        margin=dict(t=top_margin, b=bot_margin, l=50, r=30),
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(
+            tickfont=dict(size=10 if weekly else 12),
+            tickmode="array",
+            tickvals=labels,
+            ticktext=labels,
+            tickangle=-45 if weekly else 0,
+            fixedrange=True,
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor="rgba(0,0,0,0.06)",
+            tickfont=dict(size=11),
+            tickformat=".0%" if is_percentage else (".1f" if is_ratio else ""),
+            tickprefix="" if (is_percentage or is_ratio) else ("Dhs " if is_currency else ""),
+            rangemode="tozero",
+            fixedrange=True,
+        ),
+        bargap=0.25 if weekly else 0.35,
+        dragmode=False,
+        legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),
+    )
+
+    st.plotly_chart(
+        fig,
+        key=f"chart_v3_{active_key}",
+        use_container_width=True,
+        config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False},
+    )
 
 
 # =====================================================================
 # GLOBAL STYLES
 # =====================================================================
 
+
 def inject_global_styles():
     """Inject the shared CSS styles into the page."""
-    st.markdown("""
+    st.markdown(
+        """
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700&display=swap');
 
@@ -908,12 +1542,15 @@ def inject_global_styles():
             padding: 0.25rem 0.75rem !important;
         }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 # =====================================================================
 # PERIOD SELECTOR (shared between all pages)
 # =====================================================================
+
 
 def period_selector(con, show_title=True):
     """Render title + period dropdown with segmented monthly/weekly control.
@@ -931,8 +1568,10 @@ def period_selector(con, show_title=True):
     # Segmented control: pills widget
     current_default = "Weekly" if st.session_state["_weekly_persist"] else "Monthly"
     selected_grain = st.pills(
-        "Granularity", options=["Monthly", "Weekly"],
-        default=current_default, label_visibility="collapsed",
+        "Granularity",
+        options=["Monthly", "Weekly"],
+        default=current_default,
+        label_visibility="collapsed",
     )
     weekly_mode = selected_grain == "Weekly"
     st.session_state["_weekly_persist"] = weekly_mode
@@ -983,8 +1622,10 @@ def period_selector(con, show_title=True):
             default_idx = reversed_labels.index(stored_label)
 
     selected_label = st.selectbox(
-        "Period", options=reversed_labels,
-        index=default_idx, label_visibility="collapsed",
+        "Period",
+        options=reversed_labels,
+        index=default_idx,
+        label_visibility="collapsed",
     )
     selected_period = label_to_period[selected_label]
 
@@ -1003,6 +1644,7 @@ month_selector = period_selector
 # SHARED PAGE HELPERS
 # =====================================================================
 
+
 def render_page_header(con):
     """Render the standard detail-page header: back link (left) + period selector (right).
 
@@ -1012,7 +1654,7 @@ def render_page_header(con):
     with left:
         st.markdown('<div class="detail-back">', unsafe_allow_html=True)
         st.page_link("pages/overview.py", label="\u2190 Back to Overview", icon="\U0001f3e0")
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
     with right:
         selected_period, available_periods = period_selector(con, show_title=False)
     st.markdown("---")
@@ -1033,7 +1675,7 @@ def render_page_title(text, color):
     st.markdown(
         f'<h2 style="text-align:center; color:{color}; font-weight:700; '
         f'font-size:1.5rem; margin:0.8rem 0 0.6rem 0; letter-spacing:0.02em;">'
-        f'{text}</h2>',
+        f"{text}</h2>",
         unsafe_allow_html=True,
     )
 
@@ -1158,10 +1800,7 @@ def _value_block(data_key, val, current, previous, height):
             arrow, color = "\u2193", "#ff2b2b"
         else:
             arrow, color = "\u2192", "#999"
-        delta = (
-            f'<span style="color:{color};font-size:0.9rem;font-weight:600;">'
-            f'{arrow} {pct:+.0f}%</span>'
-        )
+        delta = f'<span style="color:{color};font-size:0.9rem;font-weight:600;">{arrow} {pct:+.0f}%</span>'
 
     return (
         f'<div style="height:{height}px;display:flex;flex-direction:column;'
@@ -1169,13 +1808,21 @@ def _value_block(data_key, val, current, previous, height):
         f'<div style="font-size:2.2rem;font-weight:700;color:#0e1117;'
         f'line-height:1.2;">{formatted}</div>'
         f'<div style="margin-top:0.25rem;">{delta}</div>'
-        f'</div>'
+        f"</div>"
     )
 
 
-def render_metric_selector(metrics, trend_data, window, available_periods,
-                           selected_period, state_key, header_color,
-                           chart_height=None, detail_link=None):
+def render_metric_selector(
+    metrics,
+    trend_data,
+    window,
+    available_periods,
+    selected_period,
+    state_key,
+    header_color,
+    chart_height=None,
+    detail_link=None,
+):
     """Render interactive button-selector layout: buttons+values (left), chart (right).
 
     Parameters:
@@ -1204,14 +1851,17 @@ def render_metric_selector(metrics, trend_data, window, available_periods,
         st.session_state[state_key] = first_key
 
     # Zero-gap CSS for card column
-    st.markdown("""
+    st.markdown(
+        """
     <style>
         [data-testid="stHorizontalBlock"] > div:first-child
             [data-testid="stVerticalBlock"] > div {
             gap: 0 !important;
         }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
     cur = trend_data.get(selected_period, {})
     p_idx = available_periods.index(selected_period)
@@ -1256,9 +1906,14 @@ def render_metric_selector(metrics, trend_data, window, available_periods,
     with chart_col:
         active_key = st.session_state[state_key]
         render_trend_chart_v2(
-            f"{state_key}_{active_key}", trend_data, window, available_periods,
-            METRIC_CONFIG[active_key], header_color,
-            show_title=False, height=chart_h,
+            f"{state_key}_{active_key}",
+            trend_data,
+            window,
+            available_periods,
+            METRIC_CONFIG[active_key],
+            header_color,
+            show_title=False,
+            height=chart_h,
         )
 
 
@@ -1289,9 +1944,11 @@ def render_detail_page(page_key):
         trend_data = fetch_measures_batch(con, tuple(fetch_periods))
     elif fetch_type == "customer":
         from customer_report_shared import fetch_customer_measures_batch
+
         trend_data = fetch_customer_measures_batch(con, tuple(fetch_periods))
     elif fetch_type == "new_customer":
         from customer_report_shared import fetch_new_customer_detail_batch
+
         trend_data = fetch_new_customer_detail_batch(con, tuple(fetch_periods))
 
     render_metric_selector(
