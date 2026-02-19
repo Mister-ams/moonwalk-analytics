@@ -141,20 +141,20 @@ def change_html(current, previous, size="normal"):
     elif pct < -0.5:
         arrow, bg, fg = "\u25bc", "#ef9a9a", "#b71c1c"
     else:
-        arrow, bg, fg = "\u25a0", "#fff176", "#f57f17"
+        arrow, bg, fg = "\u25a0", "#CFD8DC", "#37474F"
     return f'<span style="display:inline-block;background:{bg};color:{fg};{pill_style}">{arrow} {pct:+.0f}%</span>'
 
 
 def headline_card(label, value_html, change, header_color):
     """Display-only headline card with colored header banner."""
     return (
-        f'<div style="border-radius:0.75rem;overflow:hidden;background:#fff;'
-        f'box-shadow:0 4px 16px rgba(0,0,0,0.18);">'
-        f'<div style="background:{header_color};padding:0.5rem 0;text-align:center;">'
-        f'<span style="color:#fff;font-weight:700;font-size:0.95rem;'
-        f'letter-spacing:0.04em;">{label}</span></div>'
+        f'<div style="border-radius:1rem;overflow:hidden;background:#fff;'
+        f'box-shadow:0 1px 3px rgba(0,0,0,0.07), 0 4px 14px rgba(0,0,0,0.12);">'
+        f'<div style="background:{header_color};padding:0.6rem 0.5rem;text-align:center;">'
+        f'<span style="color:#fff;font-weight:700;font-size:0.875rem;'
+        f'letter-spacing:0.06em;">{label}</span></div>'
         f'<div style="padding:0.5rem 0.5rem 0.4rem;text-align:center;">'
-        f'<div style="font-size:2rem;font-weight:700;color:#0e1117;'
+        f'<div style="font-size:1.85rem;font-weight:700;color:#0e1117;'
         f'line-height:1.3;">{value_html}</div>'
         f'<div style="margin-top:0.2rem;">{change}</div>'
         f"</div></div>"
@@ -172,26 +172,24 @@ def headline_card_with_subs(label, value_html, change, header_color, subs):
         subs         -- list of (sub_label, sub_value_html, sub_change_html) tuples
     """
     html = (
-        f'<div class="headline-card-wrap" style="border-radius:0.75rem;overflow:hidden;'
-        f"background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.18);"
+        f'<div class="headline-card-wrap" style="border-radius:1rem;overflow:hidden;'
+        f"background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.07), 0 4px 14px rgba(0,0,0,0.12);"
         f'transition:transform 0.15s ease, box-shadow 0.15s ease;">'
-        f'<div style="background:{header_color};padding:0.5rem 0;text-align:center;">'
-        f'<span style="color:#fff;font-weight:700;font-size:0.95rem;'
-        f'letter-spacing:0.04em;">{label}</span></div>'
+        f'<div style="background:{header_color};padding:0.6rem 0.5rem;text-align:center;">'
+        f'<span style="color:#fff;font-weight:700;font-size:0.875rem;'
+        f'letter-spacing:0.06em;">{label}</span></div>'
         f'<div style="padding:0.5rem 0.5rem 0.3rem;text-align:center;">'
-        f'<div style="font-size:2rem;font-weight:700;color:#0e1117;'
+        f'<div style="font-size:1.85rem;font-weight:700;color:#0e1117;'
         f'line-height:1.3;">{value_html}</div>'
         f'<div style="margin-top:0.2rem;">{change}</div>'
         f"</div>"
     )
     if subs:
-        html += (
-            '<div style="border-top:1px solid #eee;margin:0 0.5rem;"></div><div style="padding:0.3rem 0.6rem 0.5rem;">'
-        )
+        html += '<div style="border-top:1px solid rgba(0,0,0,0.07);margin:0 0.5rem;"></div><div style="padding:0.3rem 0.6rem 0.5rem;">'
         for sub_label, sub_val, sub_chg in subs:
             html += (
                 f'<div style="display:flex;justify-content:space-between;'
-                f'align-items:center;padding:0.2rem 0;">'
+                f'align-items:center;padding:0.25rem 0;">'
                 f'<span style="font-size:0.82rem;color:#666;">{sub_label}</span>'
                 f'<span style="font-size:0.95rem;font-weight:700;color:#0e1117;">'
                 f"{sub_val} {sub_chg}</span>"
@@ -200,9 +198,9 @@ def headline_card_with_subs(label, value_html, change, header_color, subs):
         html += "</div>"
     # "View Details" footer cue
     html += (
-        '<div style="border-top:1px solid #eee;margin:0 0.5rem;"></div>'
-        '<div style="text-align:center;padding:0.3rem 0;color:#999;'
-        'font-size:0.78rem;">View Details &rarr;</div>'
+        '<div style="border-top:1px solid rgba(0,0,0,0.07);margin:0 0.5rem;"></div>'
+        '<div style="text-align:center;padding:0.3rem 0;color:#666;'
+        'font-size:0.8rem;">View Details &rarr;</div>'
     )
     html += "</div>"
     return html
@@ -1121,12 +1119,11 @@ def fetch_measures_batch(_con, periods_tuple):
 
 
 def format_period_label(period):
-    """Format a period string for display. Monthly: 'Feb 2025', Weekly: '3 Feb '26'."""
+    """Format a period string for display. Monthly: 'Feb 2025', Weekly: '26W07'."""
     if is_weekly(period):
         parts = period.split("-W")
         year, week = int(parts[0]), int(parts[1])
-        monday = date.fromisocalendar(year, week, 1)
-        return f"{monday.day} {monday.strftime('%b %y')}"
+        return f"{str(year)[2:]}W{week:02d}"
     y, m = period.split("-")
     return datetime(int(y), int(m), 1).strftime("%b %Y")
 
@@ -1252,7 +1249,7 @@ def render_trend_chart_v2(
     bot_margin = 60 if not show_annotations else 110
 
     fig.update_layout(
-        title=dict(text=config["label"], font=dict(size=16, weight=700)) if show_title else dict(text=""),
+        title=dict(text=config["label"], font=dict(size=15, weight=600)) if show_title else dict(text=""),
         height=height,
         margin=dict(t=top_margin, b=bot_margin, l=50, r=30),
         paper_bgcolor="#ffffff",
@@ -1267,14 +1264,14 @@ def render_trend_chart_v2(
         ),
         yaxis=dict(
             showgrid=True,
-            gridcolor="rgba(0,0,0,0.06)",
+            gridcolor="rgba(0,0,0,0.08)",
             tickfont=dict(size=11),
             tickformat=".0%" if is_percentage else (".1f" if is_ratio else ""),
             tickprefix="" if (is_percentage or is_ratio) else ("Dhs " if is_currency else ""),
             rangemode="tozero",
             fixedrange=True,
         ),
-        bargap=0.25 if weekly else 0.35,
+        bargap=0.25 if weekly else 0.30,
         dragmode=False,
     )
 
@@ -1422,7 +1419,7 @@ def render_trend_chart_v3(
     bot_margin = 60 if not show_annotations else 110
 
     fig.update_layout(
-        title=dict(text=config["label"], font=dict(size=16, weight=700)) if show_title else dict(text=""),
+        title=dict(text=config["label"], font=dict(size=15, weight=600)) if show_title else dict(text=""),
         height=height,
         margin=dict(t=top_margin, b=bot_margin, l=50, r=30),
         paper_bgcolor="#ffffff",
@@ -1437,14 +1434,14 @@ def render_trend_chart_v3(
         ),
         yaxis=dict(
             showgrid=True,
-            gridcolor="rgba(0,0,0,0.06)",
+            gridcolor="rgba(0,0,0,0.08)",
             tickfont=dict(size=11),
             tickformat=".0%" if is_percentage else (".1f" if is_ratio else ""),
             tickprefix="" if (is_percentage or is_ratio) else ("Dhs " if is_currency else ""),
             rangemode="tozero",
             fixedrange=True,
         ),
-        bargap=0.25 if weekly else 0.35,
+        bargap=0.25 if weekly else 0.30,
         dragmode=False,
         legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),
     )
@@ -1484,13 +1481,13 @@ def inject_global_styles():
         }
 
         .stMarkdown { margin-bottom: 0 !important; }
-        div[data-testid="stVerticalBlock"] > div { gap: 0.6rem !important; }
+        div[data-testid="stVerticalBlock"] > div { gap: 0.75rem !important; }
         div[data-testid="stSelectbox"] { max-width: 200px; }
 
         div[data-testid="stPlotlyChart"] {
             background: #fff;
-            border-radius: 0.75rem;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+            border-radius: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 3px 10px rgba(0,0,0,0.08);
             padding: 1.2rem 1rem;
             overflow: hidden;
             box-sizing: border-box;
@@ -1532,7 +1529,7 @@ def inject_global_styles():
         /* headline card hover — lift effect for interactivity cue */
         .headline-card-wrap:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0,0,0,0.22) !important;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.10), 0 8px 24px rgba(0,0,0,0.18) !important;
             cursor: pointer;
         }
 
@@ -1586,6 +1583,7 @@ def period_selector(con, show_title=True):
                 FROM sales s
                 JOIN dim_period p ON s.Earned_Date = p.Date
                 WHERE s.Earned_Date IS NOT NULL
+                  AND p.IsCurrentISOWeek = 0
                 ORDER BY p.ISOWeekLabel
             """).df()
             if len(periods_df) == 0:
@@ -1598,6 +1596,7 @@ def period_selector(con, show_title=True):
                 FROM sales s
                 JOIN dim_period p ON s.OrderCohortMonth = p.Date
                 WHERE s.Earned_Date IS NOT NULL
+                  AND p.IsCurrentMonth = 0
                 ORDER BY p.YearMonth
             """).df()
             if len(periods_df) == 0:

@@ -204,19 +204,6 @@ with tab2:
     trend_data = fetch_measures_batch(con, tuple(fetch_periods))
     yoy_trend = fetch_yoy_batch(con, tuple(fetch_periods))
 
-    # Build inline AOV trend
-    aov_trend = {}
-    for p, v in trend_data.items():
-        r = v.get("revenues", 0)
-        i = v.get("items", 0)
-        aov_trend[p] = {"aov": r / i if i > 0 else 0}
-
-    yoy_aov_trend = {}
-    for p, v in yoy_trend.items():
-        r = v.get("revenues", 0)
-        i = v.get("items", 0)
-        yoy_aov_trend[p] = {"aov": r / i if i > 0 else 0}
-
     row1 = st.columns(2)
     row2 = st.columns(2)
 
@@ -260,22 +247,16 @@ with tab2:
             moving_avg_periods=3,
         )
     with row2[1]:
-        all_trend = {**trend_data, **aov_trend}
-        for p in trend_data:
-            all_trend[p] = {**trend_data.get(p, {}), **aov_trend.get(p, {})}
-        all_yoy = {}
-        for p in yoy_trend:
-            all_yoy[p] = {**yoy_trend.get(p, {}), **yoy_aov_trend.get(p, {})}
         render_trend_chart_v3(
-            "ep_aov",
-            all_trend,
+            "ep_stops",
+            trend_data,
             window,
             available_periods,
-            METRIC_CONFIG["aov"],
-            "#7B1FA2",
+            METRIC_CONFIG["stops"],
+            stop_hdr,
             show_title=True,
             height=380,
-            yoy_data=all_yoy,
+            yoy_data=yoy_trend,
             moving_avg_periods=3,
         )
 

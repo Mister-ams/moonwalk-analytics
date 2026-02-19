@@ -51,6 +51,7 @@ This roadmap serves the **analytics layer** of the SME Internal Operating System
 | Tick 6B | Feature | Streamlit Cloud deployment. `IS_CLOUD` config detection, cloud-resilient logging/profiling, `analytics.duckdb` in repo (11MB), `requirements.txt`, `.streamlit/config.toml`. GitHub: `Mister-ams/moonwalk-analytics` (public). |
 | **Tock 7B** | **Quality** | **Security: Password gate (`hmac` + `st.secrets`), DuckDB AES-256 encryption (ATTACH pattern), `DUCKDB_KEY` in config, Playwright auth tests. Git history purged (`git-filter-repo`), encrypted DB pushed to cloud. Streamlit Cloud secrets configured, Notion embed confirmed.** |
 | **Tick 7** | **Feature** | **Persona-based dashboard redesign: 12 pages → 4 persona pages (Executive Pulse, Customer Analytics, Operations Center, Financial Performance) with 15 tabs. YoY overlays + 3P moving avg (`render_trend_chart_v3`), M0-M3+ extended cohort, all-time retention heatmap, RFM segmentation (6 segments + CLV), 20-rule insights engine, outstanding balances (aging buckets), pareto/concentration chart. Legacy→paid fix. 8 new `section_data.py` functions. 122 tests pass.** |
+| **Tick 8** | **Feature** | **Closed period filter (`IsCurrentMonth = 0` / `IsCurrentISOWeek = 0` in period selector SQL), UI polish (1rem border-radius, layered shadows, neutral MoM pill `#CFD8DC`/`#37474F`, refined card typography + chart config), Notion portal page (`30ca2f71-fdb0-81fa-a12b-c5e844be2bf3`) with 4 persona callout blocks + Streamlit links, LLM narrative pipeline: new `notion_push.py` generates 4-paragraph GPT-4o-mini narrative from `insights` table and appends to Notion after each `refresh_cli.py` run. READ_ONLY DuckDB ATTACH for concurrent access. `NOTION_API_KEY` + `OPENAI_API_KEY` wired into `config.py` + `.streamlit/secrets.toml`.** |
 
 ### Items Resolved (Previously Listed as Open)
 
@@ -319,6 +320,31 @@ Cross-cutting: CSV export on every page (st.download_button)
 
 ---
 
+### Tick 8 — UI Polish + Closed Periods + Notion Intelligence Layer — COMPLETED 2026-02-19
+
+**Focus:** Dashboard accuracy (closed periods only), visual refinements, and automated LLM narrative generation pushed to Notion on each data refresh.
+**Scope:** `dashboard_shared.py` (period filter + UI polish), new `notion_push.py`, `config.py` (Notion/OpenAI keys), `refresh_cli.py` (Notion step wired in).
+
+| # | Item | Details | Status |
+|---|------|---------|--------|
+| 8.1 | **Closed period filter** | `period_selector()` monthly SQL: `AND p.IsCurrentMonth = 0`. Weekly SQL: `AND p.IsCurrentISOWeek = 0`. Period dropdown now defaults to last closed period (Jan 2026 monthly / previous ISO week). | Done |
+| 8.2 | **UI polish — CSS** | `inject_global_styles()`: `1rem` border-radius on cards + chart containers, layered shadows (`0 1px 3px … 0 4px 14px …`), neutral MoM pill (`#CFD8DC` bg / `#37474F` fg, replacing alarming yellow), `0.75rem` vertical gap. | Done |
+| 8.3 | **UI polish — card typography** | `headline_card()`/`headline_card_with_subs()`: header padding `0.6rem 0.5rem`, font-size `0.875rem`, letter-spacing `0.06em`, main value `1.85rem`, sub-row padding `0.25rem 0`, dividers `rgba(0,0,0,0.07)`, footer `color:#666; font-size:0.8rem`. | Done |
+| 8.4 | **UI polish — charts** | `render_trend_chart_v2/v3`: `gridcolor="rgba(0,0,0,0.08)"`, `bargap=0.30` monthly (was 0.35), `font=dict(size=15, weight=600)`. | Done |
+| 8.5 | **Notion portal page** | Created page `30ca2f71-fdb0-81fa-a12b-c5e844be2bf3` with 4 persona callout blocks (Executive Pulse / Customer Analytics / Operations Center / Financial Performance) and direct Streamlit per-page links. Integration token connected manually via Notion Connections menu. | Done |
+| 8.6 | **LLM narrative pipeline (`notion_push.py`)** | Fetches `insights` table context + KPI snapshot (current + prior month) → GPT-4o-mini prompt → 4 paragraphs (60-80 words each, one per persona) → callout block (timestamp + period) + 4 paragraph blocks appended to Notion. `NOTION_API_KEY` + `OPENAI_API_KEY` loaded from `config.py` / `.streamlit/secrets.toml`. | Done |
+| 8.7 | **Wire into `refresh_cli.py`** | After successful DuckDB rebuild: `from notion_push import run as notion_run; notion_run(log=logger.info)` — non-fatal, logs and skips if either API key absent. | Done |
+
+**Key decisions:**
+- READ_ONLY DuckDB ATTACH (`ATTACH '...' AS db (ENCRYPTION_KEY '...', READ_ONLY)`) — allows `notion_push.py` to read while dashboard may hold the write lock
+- OpenAI (`gpt-4o-mini`) over Anthropic — user already had OpenAI API key; `openai>=1.0` added to `pyproject.toml`
+- Notion integration token vs OAuth — internal integrations cannot access pages created via MCP (OAuth); one-time manual share via Notion Connections menu resolves this permanently
+- Neutral MoM pill — gray `#CFD8DC`/`#37474F` replaces yellow `#fff176`/`#f57f17`; yellow was alarming on flat/stable months
+
+**Results:** 122 tests unchanged. End-to-end: DuckDB rebuild (0.9s) + GPT-4o-mini narrative (~10s) + Notion push = ~12.4s total.
+
+---
+
 ### Tock 8 — Test & Quality After Restructure
 
 **Focus:** Stabilize the restructured dashboard. Update tests, clean up dead code.
@@ -333,38 +359,38 @@ Cross-cutting: CSV export on every page (st.download_button)
 
 ---
 
-### Tick 8 — Appsmith Operational UI
+### Tick 9 — Appsmith Operational UI
 
 **Focus:** Build the operational application layer. Outstanding balance follow-up moves from read-only Streamlit to actionable Appsmith.
 **Scope:** Appsmith deployment, FastAPI skeleton, Notion portal integration. No Postgres.
 
 | # | Item | Details |
 |---|------|---------|
-| 8.5 | **FastAPI skeleton** | CRUD endpoints reading from DuckDB/CSV, health endpoint. Lightweight — no auth yet. |
-| 8.6 | **Appsmith deployment** | Local or cloud Appsmith instance. Connect to FastAPI. |
-| 8.7 | **Outstanding balance management** | Appsmith screen: search unpaid orders, mark as paid, add follow-up notes. Replaces read-only Streamlit view for actionable items. |
-| 8.8 | **Customer lookup/edit** | Appsmith screen: search by name/ID, view full order history, edit customer record. |
-| 8.9 | **Notion portal update** | Links to Appsmith (operational) + Streamlit (analytics). Per-persona SOPs. |
-| 8.10 | **Phase out Excel PowerPivot** | Once Streamlit + Appsmith provide equivalent coverage. |
+| 9.1 | **FastAPI skeleton** | CRUD endpoints reading from DuckDB/CSV, health endpoint. Lightweight — no auth yet. |
+| 9.2 | **Appsmith deployment** | Local or cloud Appsmith instance. Connect to FastAPI. |
+| 9.3 | **Outstanding balance management** | Appsmith screen: search unpaid orders, mark as paid, add follow-up notes. Replaces read-only Streamlit view for actionable items. |
+| 9.4 | **Customer lookup/edit** | Appsmith screen: search by name/ID, view full order history, edit customer record. |
+| 9.5 | **Notion portal update** | Links to Appsmith (operational) + Streamlit (analytics). Per-persona SOPs. |
+| 9.6 | **Phase out Excel PowerPivot** | Once Streamlit + Appsmith provide equivalent coverage. |
 
 **Separation of concerns:** Streamlit = analytical (view-only). Appsmith = operational (CRUD). FastAPI reads from DuckDB during POC; when Postgres arrives, only the data source changes.
 
 ---
 
-### Tick 9 — Prefect Orchestration + Notion Integration
+### Tick 10 — Prefect Orchestration + Notion KPI Database
 
-**Focus:** Replace PowerShell automation with Python-native orchestration. Add Notion KPI push.
-**Scope:** Prefect deployment, ETL scheduling, Notion API integration.
+**Focus:** Replace PowerShell automation with Python-native orchestration. Add structured Notion KPI database (LLM narrative push already done in Tick 8).
+**Scope:** Prefect deployment, ETL scheduling, Notion KPI database via API.
 
 | # | Item | Details |
 |---|------|---------|
-| 9.1 | **Prefect deployment** | Local Prefect server or Prefect Cloud (free tier). |
-| 9.2 | **ETL flow** | Wrap `cleancloud_to_excel_MASTER.py` as a Prefect flow with task-level retries. |
-| 9.3 | **DuckDB rebuild task** | `cleancloud_to_duckdb.py` as a downstream Prefect task, triggered after ETL. |
-| 9.4 | **Insights generation task** | Compute rules-based insights + store in DuckDB `insights` table. |
-| 9.5 | **Notion KPI push** | Post-ETL task: write period KPIs to Notion database via API (`notion-client`). Notion renders as native cards/gallery. |
-| 9.6 | **Scheduling + notifications** | Cron-based or file-watcher trigger. Email/Slack alerts on failure via Prefect automations. |
-| 9.7 | **Phase out PowerShell** | Prefect handles all orchestration. Retire `refresh_moonwalk_data.ps1`. |
+| 10.1 | **Prefect deployment** | Local Prefect server or Prefect Cloud (free tier). |
+| 10.2 | **ETL flow** | Wrap `cleancloud_to_excel_MASTER.py` as a Prefect flow with task-level retries. |
+| 10.3 | **DuckDB rebuild task** | `cleancloud_to_duckdb.py` as a downstream Prefect task, triggered after ETL. |
+| 10.4 | **Insights generation task** | Compute rules-based insights + store in DuckDB `insights` table. |
+| 10.5 | **Notion KPI database** | Post-ETL task: write period KPIs to Notion database via API (`notion-client`). Notion renders as native cards/gallery. (LLM narrative push already done in Tick 8 via `notion_push.py`.) |
+| 10.6 | **Scheduling + notifications** | Cron-based or file-watcher trigger. Email/Slack alerts on failure via Prefect automations. |
+| 10.7 | **Phase out PowerShell** | Prefect handles all orchestration. Retire `refresh_moonwalk_data.ps1`. |
 
 ---
 
@@ -387,7 +413,7 @@ Cross-cutting: CSV export on every page (st.download_button)
 
 **Principle:** Notion = narrative layer. Streamlit = analytical engine. Separate containers.
 
-### Phase 1 (Tick 7 — Now): Portal with Links
+### Phase 1 (Tick 7 + Tick 8 — Completed): Portal with Links + LLM Narrative
 
 ```
 Notion                                Streamlit
@@ -400,7 +426,7 @@ Monthly Review template               Executive Pulse (interactive)
 └── Per-persona SOPs
 ```
 
-### Phase 2 (Tick 9 — Prefect): Portal with KPI Database
+### Phase 2 (Tick 10 — Prefect): Portal with KPI Database
 
 ```
 Notion                                Streamlit
@@ -413,7 +439,7 @@ KPI Database (auto-populated)         Full interactive dashboards
     Prefect → Notion API
 ```
 
-### Phase 3 (Tick 7B): Portal with Embedded Frames
+### Phase 3 (Tick 7B — Future): Portal with Embedded Frames
 
 ```
 Notion Page: "Monthly Business Review"
@@ -515,7 +541,7 @@ These items build on the Postgres foundation. They add enterprise features to th
 | 7 | Don't invest further in PowerShell | Phased out by Prefect in Tick 9; current Tock 5 hardening is sufficient until then. |
 | 8 | Don't add RBAC for POC | Auth comes post-migration (SSO/IdP). |
 | 9 | Don't use lazy evaluation in ETL | Eager loading by design (shared data dict across transforms). |
-| 10 | Don't make Streamlit do CRUD | Streamlit = analytical (read-only). Appsmith = operational (CRUD). Separation of concerns. |
+| 10 | Don't make Streamlit do CRUD | Streamlit = analytical (read-only). Appsmith = operational (CRUD). Separation of concerns. Appsmith is Tick 9. |
 
 ---
 
@@ -530,13 +556,14 @@ CleanCloud CSV (manual download)
     → DuckDB (analytics engine, file-based, 0.5s rebuild)
         + insights table (rules-based, generated during rebuild)
     → Streamlit (4 persona pages, 15 tabs, analytics dashboards)
+    → notion_push.py (LLM narrative: GPT-4o-mini → Notion, runs after each refresh)
     → FastAPI (lightweight API layer, reads DuckDB)
     → Appsmith (operational UI: outstanding balances, customer lookup)
     → Notion (portal: narrative + links + KPI database via API)
 
 Orchestration: Prefect (replaces PowerShell)
 Development: Claude Code
-Tests: 150 (pytest + Playwright)
+Tests: 122 (pytest + Playwright)
 Deployment: Streamlit Community Cloud (auto-deploy on push)
 ```
 
@@ -580,17 +607,13 @@ DONE
 ├── Tock 7: Test coverage 93 → 145 (TRY_CAST, Playwright, edge cases) (2026-02-17)
 ├── Tick 6B: Streamlit Cloud deploy + cloud-ready config (2026-02-17)
 ├── Tock 7B: Security — password gate + DuckDB AES-256 encryption (2026-02-18)
+├── Tick 7: Persona-based dashboard redesign — 4 pages, 15 tabs (2026-02-19)
+└── Tick 8: Closed periods, UI polish, Notion portal + LLM narrative pipeline (2026-02-19)
 │
-NOW (POC — persona-based dashboard + operational layer)
-├── Tick 7: Persona-based dashboard redesign (4 pages, 15 tabs, 17 items)
-│   ├── Executive Pulse: Snapshot + Trends (YoY + 3-mo forecast) + Insights
-│   ├── Customer Analytics: Acquisition (+ Reactivation) + Segmentation (+ RFM + CLV) + Cohort + Per-Customer
-│   ├── Operations Center: Logistics + Geography + Service Mix (+ Express)
-│   ├── Financial Performance: Collections + Payment Cycle + Concentration + Outstanding
-│   └── Cross-cutting: CSV export on all pages, DuckDB data fixes, Playwright rewrite
-├── Tock 8: Test rewrite + stabilization after restructure
-├── Tick 8: Appsmith operational UI (outstanding balances, customer lookup)
-├── Tick 9: Prefect orchestration + Notion KPI push
+NOW (POC — operational layer + testing)
+├── Tock 8: Test rewrite + stabilization after restructure (deferred from before Tick 8)
+├── Tick 9: Appsmith operational UI (outstanding balances, customer lookup)
+├── Tick 10: Prefect orchestration + Notion KPI database (LLM narrative push done in Tick 8)
 └── Tick 7B: Dashboard enhancements (Notion embeds, PDF reports, advanced RFM actions)
 
 NEXT (Postgres Migration — dedicated cycle)
@@ -618,7 +641,7 @@ LATER (MVP — enterprise features on Postgres)
 | `spec-stripe-recon.md` | `Downloads/Lime Reporting/` | Planned — parallel Stripe reconciliation module |
 | `guide-agentic-dev-workflow.md` | `Downloads/` | Reference — agentic finance dev framework |
 | `template-project-intake.md` | `Downloads/Lime Reporting/` | Template — new project planning scaffold |
-| `CLAUDE.md` | Project root | Living document, updated per cycle |
+| `CLAUDE.md` | Project root | Living document, updated per cycle — v5.6 (post Tick 8) |
 | **Code review (Feb 2026)** | This document | 3 CRITICAL + 3 HIGH fixed; 3 MEDIUM + 3 LOW remaining |
 
 **Deleted (absorbed into this roadmap):** `Design_overhaul.md`, `Python_ETL_Cleanup.md`, `Tier5_Harden.md`, `productivity_wins.md`

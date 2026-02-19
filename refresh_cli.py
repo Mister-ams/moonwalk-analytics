@@ -39,6 +39,7 @@ def run_etl() -> bool:
     start = time.perf_counter()
     try:
         import cleancloud_to_excel_MASTER
+
         cleancloud_to_excel_MASTER.main()
     except SystemExit as e:
         if e.code and e.code != 0:
@@ -70,6 +71,7 @@ def run_duckdb() -> bool:
     start = time.perf_counter()
     try:
         import cleancloud_to_duckdb
+
         cleancloud_to_duckdb.main()
     except SystemExit as e:
         if e.code and e.code != 0:
@@ -93,11 +95,13 @@ def main():
         description="Moonwalk Analytics — Cross-platform refresh CLI",
     )
     parser.add_argument(
-        "--etl-only", action="store_true",
+        "--etl-only",
+        action="store_true",
         help="Run ETL pipeline only (skip DuckDB rebuild)",
     )
     parser.add_argument(
-        "--duckdb-only", action="store_true",
+        "--duckdb-only",
+        action="store_true",
         help="Rebuild DuckDB only (skip ETL pipeline)",
     )
     args = parser.parse_args()
@@ -123,6 +127,14 @@ def main():
     if run_duckdb_flag:
         if not run_duckdb():
             success = False
+        else:
+            # Optional Notion push (only if env vars set; logs and exits cleanly if not)
+            try:
+                from notion_push import run as notion_run
+
+                notion_run(log=logger.info)
+            except Exception as e:
+                logger.warning(f"Notion push failed (non-fatal): {e}")
 
     total_elapsed = time.perf_counter() - total_start
 

@@ -16,12 +16,23 @@ st.set_page_config(
 
 
 def _check_password():
-    """Gate dashboard behind a shared password from st.secrets."""
+    """Gate dashboard behind a shared password from st.secrets.
+
+    Bypass: append ?token=<NOTION_TOKEN> to the URL (used by Notion portal links).
+    """
     if st.session_state.get("_auth_ok"):
         return True
     pwd = st.secrets.get("DASHBOARD_PASSWORD", "")
     if not pwd:
         return True
+
+    # Token-based bypass for Notion portal visitors
+    notion_token = st.secrets.get("NOTION_TOKEN", "")
+    if notion_token:
+        url_token = st.query_params.get("token", "")
+        if url_token and hmac.compare_digest(url_token, notion_token):
+            st.session_state["_auth_ok"] = True
+            return True
 
     def _on_submit():
         if hmac.compare_digest(st.session_state.get("_pwd_input", ""), pwd):
