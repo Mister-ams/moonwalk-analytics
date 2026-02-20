@@ -14,6 +14,7 @@ Output:
 
 import duckdb
 import json
+import time
 from pathlib import Path
 from datetime import datetime
 import os
@@ -1065,18 +1066,18 @@ def main():
     # Close connection, then atomically swap temp file into place
     conn.close()
 
-    # Replace the live DB file (handles locking gracefully)
+    # Replace the live DB file — retry up to 5s for brief locks (e.g. read-only
+    # dashboard connection that just closed), then give up gracefully.
     tmp_path = DB_PATH.with_suffix(".duckdb.tmp")
-    try:
-        os.replace(str(tmp_path), str(DB_PATH))
-    except PermissionError:
-        # Dashboard still holds the file — try removing old first
+    for attempt in range(5):
         try:
-            DB_PATH.unlink()
-        except PermissionError:
-            logger.info(f"  [WARN] Could not replace {DB_PATH.name} (in use) — new DB saved as {tmp_path.name}")
-        else:
             os.replace(str(tmp_path), str(DB_PATH))
+            break
+        except PermissionError:
+            if attempt < 4:
+                time.sleep(1)
+    else:
+        logger.info(f"  [WARN] Could not replace {DB_PATH.name} (in use) — new DB saved as {tmp_path.name}")
 
     elapsed = (datetime.now() - start_time).total_seconds()
     target = DB_PATH if DB_PATH.exists() else tmp_path

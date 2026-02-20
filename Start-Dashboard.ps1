@@ -64,6 +64,22 @@ Write-Step "Checking DuckDB freshness ..."
 $needsRebuild = $false
 $dbTmpPath    = "$DbPath.tmp"
 
+# Promote a .tmp left by a Prefect run that couldn't rename the locked file.
+# By the time Start-Dashboard runs the lock is usually cleared.
+if (Test-Path $dbTmpPath) {
+    $tmpTime = (Get-Item $dbTmpPath).LastWriteTime
+    $dbTime  = if (Test-Path $DbPath) { (Get-Item $DbPath).LastWriteTime } else { [datetime]::MinValue }
+    if ($tmpTime -gt $dbTime) {
+        try {
+            Move-Item -Path $dbTmpPath -Destination $DbPath -Force -ErrorAction Stop
+            Write-Ok "Promoted analytics.duckdb.tmp (left by Prefect run)."
+        }
+        catch {
+            Write-Warn "Could not promote .tmp file: $_"
+        }
+    }
+}
+
 if (-not (Test-Path $DbPath)) {
     Write-Warn "analytics.duckdb not found - will rebuild."
     $needsRebuild = $true

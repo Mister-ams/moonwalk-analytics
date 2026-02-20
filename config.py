@@ -124,6 +124,21 @@ def _get_notion_token():
 
 NOTION_TOKEN = _get_notion_token()
 
+
+def _get_notion_kpi_db_id():
+    key = os.environ.get("NOTION_KPI_DB_ID")
+    if key:
+        return key
+    try:
+        import streamlit as st
+
+        return st.secrets.get("NOTION_KPI_DB_ID", "")
+    except Exception:
+        return ""
+
+
+NOTION_KPI_DB_ID = _get_notion_kpi_db_id()
+
 # =====================================================================
 # FASTAPI (Operational API — runs independently of Streamlit)
 # =====================================================================

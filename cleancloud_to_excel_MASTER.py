@@ -545,7 +545,6 @@ def main() -> None:
         logger.info("    2. Items")
         logger.info("    3. Invoices")
         logger.info("    4. Customers")
-        input("\nPress Enter to exit...")
         return
     
     # Success!
@@ -573,8 +572,6 @@ def main() -> None:
     logger.info("      No manual updates needed!")
     logger.info("")
     logger.info("=" * 70)
-    
-    input("\nPress Enter to exit...")
 
 
 # =====================================================================

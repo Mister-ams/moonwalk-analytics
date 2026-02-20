@@ -3,7 +3,7 @@ project: moonwalk
 type: roadmap
 status: active
 created: 2026-02-16
-updated: 2026-02-19 (v5.8 — post Tick 7B)
+updated: 2026-02-20 (v6.0 — post Tock 10A)
 ---
 
 # Moonwalk Analytics — Master Project Roadmap
@@ -54,6 +54,9 @@ This roadmap serves the **analytics layer** of the SME Internal Operating System
 | **Tick 8** | **Feature** | **Closed period filter (`IsCurrentMonth = 0` / `IsCurrentISOWeek = 0` in period selector SQL), UI polish (1rem border-radius, layered shadows, neutral MoM pill `#CFD8DC`/`#37474F`, refined card typography + chart config), Notion portal page (`30ca2f71-fdb0-81fa-a12b-c5e844be2bf3`) with 4 persona callout blocks + Streamlit links, LLM narrative pipeline: new `notion_push.py` generates 4-paragraph GPT-4o-mini narrative from `insights` table and appends to Notion after each `refresh_cli.py` run. READ_ONLY DuckDB ATTACH for concurrent access. `NOTION_API_KEY` + `OPENAI_API_KEY` wired into `config.py` + `.streamlit/secrets.toml`.** |
 | **Tock 8** | **Quality** | **Playwright tests rewritten for 4-page structure (20 tests, was 23). 12 dead page files deleted. Cloud deploy verified on all 4 pages and 15 tabs. 147 total tests.** |
 | **Tick 9** | **Feature** | **FastAPI operational API: `api/` package (auth, SQLite, employees CRUD), Railway deployment artifacts (`Procfile`, `runtime.txt`, `.env.example`), `Start-API.ps1`, 13 FastAPI tests. 160 total tests.** |
+| **Tick 7B** | **Feature** | **Dashboard enhancements: URL tab selection (`activate_tab_from_url()` in `dashboard_shared.py` + all 4 pages); PDF report download (`generate_report.py`, fpdf2, button in EP Snapshot); RFM segment definitions panel (6 colored cards in Segmentation expander); Notion links updated with `?tab=` params. 164 total tests (`test_report.py`, 4 new). Roadmap v5.8.** |
+| **Tick 10** | **Feature** | **Prefect orchestration + Notion KPI database: `moonwalk_flow.py` (4 tasks: validate CSVs, ETL, DuckDB, Notion narrative + KPI DB), `notion_kpi_push.py` (last 6 months + 13 weeks upserted to Notion database, auto-create on first run), `NOTION_KPI_DB_ID` in `config.py`, `prefect>=3.0` in `pyproject.toml`. 4 new flow tests. 168 total tests. Launcher restructured: Workflows (Prefect [1] / Legacy [2]) → Refresh (flow, dashboard, CLI fallback) → Utilities; `refresh_moonwalk_data.ps1` removed from primary stream, accessible via Launcher [2] only. Decision: openpyxl not viable as Excel COM replacement — cannot refresh PowerPivot connections; Excel leg stays legacy-only with no planned investment.** |
+| **Tock 10A** | **Quality** | **First-run operational fixes: removed `input()` blocking calls from `cleancloud_to_excel_MASTER.py` (was blocking Prefect mid-flow); added per-step timing + performance summary to `moonwalk_flow.py`; distinct launcher labels for workflow entries (was `>> COMBINED <<` for both); fixed Notion KPI SQL (`s.IsCurrentMonth` → `s.OrderCohortMonth < date_trunc(...)`, `s.IsCurrentISOWeek` → `p.IsCurrentISOWeek` via existing dim_period join); DuckDB `.tmp` retry loop (5×1s) in `cleancloud_to_duckdb.py`; `.tmp` promotion in `Start-Dashboard.ps1` before freshness check to avoid double-rebuild; `NOTION_KPI_DB_ID` saved to `secrets.toml`. First complete end-to-end Prefect run: 18.7s total.** |
 
 ### Items Resolved (Previously Listed as Open)
 
@@ -405,20 +408,38 @@ Cross-cutting: CSV export on every page (st.download_button)
 
 ---
 
-### Tick 10 — Prefect Orchestration + Notion KPI Database
+### Tick 10 — Prefect Orchestration + Notion KPI Database — COMPLETED 2026-02-20
 
 **Focus:** Replace PowerShell automation with Python-native orchestration. Add structured Notion KPI database (LLM narrative push already done in Tick 8).
-**Scope:** Prefect deployment, ETL scheduling, Notion KPI database via API.
+**Scope:** `moonwalk_flow.py`, `notion_kpi_push.py`, launcher restructure, 4 new tests.
 
-| # | Item | Details |
-|---|------|---------|
-| 10.1 | **Prefect deployment** | Local Prefect server or Prefect Cloud (free tier). |
-| 10.2 | **ETL flow** | Wrap `cleancloud_to_excel_MASTER.py` as a Prefect flow with task-level retries. |
-| 10.3 | **DuckDB rebuild task** | `cleancloud_to_duckdb.py` as a downstream Prefect task, triggered after ETL. |
-| 10.4 | **Insights generation task** | Compute rules-based insights + store in DuckDB `insights` table. |
-| 10.5 | **Notion KPI database** | Post-ETL task: write period KPIs to Notion database via API (`notion-client`). Notion renders as native cards/gallery. (LLM narrative push already done in Tick 8 via `notion_push.py`.) |
-| 10.6 | **Scheduling + notifications** | Cron-based or file-watcher trigger. Email/Slack alerts on failure via Prefect automations. |
-| 10.7 | **Phase out PowerShell** | Prefect handles all orchestration. Retire `refresh_moonwalk_data.ps1`. |
+| # | Item | Details | Status |
+|---|------|---------|--------|
+| 10.1 | **Prefect flow** | `moonwalk_flow.py` — 4 tasks: validate CSVs (retries=0), run ETL (retries=1), run DuckDB (retries=1), push Notion narrative (retries=2), push Notion KPI DB (retries=2). Notion tasks non-fatal. | Done |
+| 10.2 | **Notion KPI database** | `notion_kpi_push.py` — last 6 closed months + 13 closed ISO weeks upserted per run. Auto-creates `Moonwalk KPI Tracker` DB on first run, logs ID. `NOTION_KPI_DB_ID` in `config.py`. | Done |
+| 10.3 | **Launcher restructure** | Workflows section: [1] Prefect+Dashboard, [2] Legacy+Dashboard. Refresh section: flow, dashboard, CLI fallback. Utilities: DuckDB, Notion KPI, API, verify. | Done |
+| 10.4 | **Retire PS from primary path** | `refresh_moonwalk_data.ps1` accessible via Launcher [2] only. Not called from Prefect flow. | Done |
+| 10.5 | **Flow tests** | 4 tests: `test_flow.py` — validate CSVs (pass/fail), ETL task, DuckDB task, Notion skips cleanly without API keys. | Done |
+
+**Results:** 168 total tests. First complete Prefect run (Tock 10A): 18.7s total (validate 0.2s, ETL 1.0s, DuckDB 0.6s, Notion narrative 15.3s, Notion KPI 1.7s). `NOTION_KPI_DB_ID` auto-created and saved.
+
+---
+
+### Tock 10A — First-Run Operational Fixes — COMPLETED 2026-02-20
+
+**Focus:** Fix bugs and rough edges uncovered by the first complete end-to-end Prefect run.
+**Scope:** 4 files, no new tests.
+
+| # | Item | Details | Status |
+|---|------|---------|--------|
+| 10A.1 | **Remove `input()` blocking in ETL** | `cleancloud_to_excel_MASTER.py` had `input("Press Enter to exit...")` in both the success and error paths of `main()`, blocking Prefect mid-flow. Removed. The `__main__` block retains it for interactive standalone use. | Done |
+| 10A.2 | **Performance summary in flow** | `moonwalk_flow.py`: per-step timing via `_run()` helper, printed as a table at end of flow run. | Done |
+| 10A.3 | **Launcher workflow labels** | Both workflow entries showed `>> COMBINED <<` — visually identical. Added `Label` field per entry (`Prefect: ETL + DuckDB + Notion + Dashboard` / `Legacy: Excel COM + OneDrive + Dashboard`). Renderer uses `$entry.Label` when present. | Done |
+| 10A.4 | **Notion KPI SQL: `IsCurrentMonth` on wrong table** | `_fetch_monthly()` referenced `s.IsCurrentMonth` — that column lives on `dim_period`, not `sales`. Fixed to `s.OrderCohortMonth < date_trunc('month', current_date)`. `_fetch_weekly()` had `s.IsCurrentISOWeek` — fixed to `p.IsCurrentISOWeek` (using existing `dim_period p` join). | Done |
+| 10A.5 | **DuckDB double-rebuild** | Prefect built `.tmp` but couldn't rename (locked by previous dashboard session). `Start-Dashboard.ps1` then rebuilt again. Two-part fix: (a) retry loop 5×1s in `cleancloud_to_duckdb.py` for brief locks; (b) `.tmp` promotion in `Start-Dashboard.ps1` before freshness check — if Prefect left a newer `.tmp`, promote it and skip the rebuild. | Done |
+| 10A.6 | **`NOTION_KPI_DB_ID` to secrets** | Auto-created on first run (`31b55160-f94f-451e-b91a-fa08a0676b0b`). Added to `.streamlit/secrets.toml` — subsequent runs go straight to upsert mode. | Done |
+
+**Results:** Full Prefect + Dashboard combined workflow runs cleanly end-to-end. Notion KPI upsert active.
 
 ---
 

@@ -33,17 +33,35 @@ foreach ($candidate in $PythonCandidates) {
 }
 
 # ── Script catalogue ────────────────────────────────────────────────
+# WorkflowCmd: inline PS command string used when IsWorkflow = $true.
+# For regular scripts, File drives the launch (ps1 or py auto-detected).
 $Scripts = @(
-    # Workflows (combined operations)
-    @{ File = '_workflow_refresh_dashboard';     Desc = 'Full Refresh then Launch Dashboard';                Section = 'Workflows';             IsWorkflow = $true }
-    @{ File = 'refresh_moonwalk_data.ps1';       Desc = 'Full Refresh: ETL + Excel + OneDrive + DuckDB';    Section = $null }
-    @{ File = 'Start-Dashboard.ps1';             Desc = 'Launch Dashboard (rebuilds DuckDB if stale)';      Section = $null }
+    # ── Workflows (combined, launch in new window) ───────────────────
+    @{
+        IsWorkflow  = $true
+        Label       = 'Prefect: ETL + DuckDB + Notion + Dashboard'
+        Desc        = '[recommended]'
+        Section     = 'Workflows'
+        WorkflowCmd = "cd '$ScriptDir'; python '.\moonwalk_flow.py'; if (`$LASTEXITCODE -eq 0 -or `$LASTEXITCODE -eq `$null) { & '.\Start-Dashboard.ps1' } else { Write-Host '  Prefect flow failed - skipping dashboard.' -ForegroundColor Red; Read-Host 'Press Enter to exit' }"
+    }
+    @{
+        IsWorkflow  = $true
+        Label       = 'Legacy: Excel COM + OneDrive + Dashboard'
+        Desc        = ''
+        Section     = $null
+        WorkflowCmd = "cd '$ScriptDir'; & '.\refresh_moonwalk_data.ps1' -NoPause; if (`$LASTEXITCODE -eq 0 -or `$LASTEXITCODE -eq `$null) { & '.\Start-Dashboard.ps1' } else { Write-Host '  Refresh failed - skipping dashboard.' -ForegroundColor Red; Read-Host 'Press Enter to exit' }"
+    }
 
-    # Utilities
-    @{ File = 'refresh_cli.py';                  Desc = 'Cross-platform refresh (ETL + DuckDB, no Excel)';   Section = 'Utilities' }
-    @{ File = 'cleancloud_to_duckdb.py';         Desc = 'Rebuild analytics.duckdb from Parquet files';       Section = $null }
-    @{ File = 'verify_migration.py';             Desc = 'Verify ETL output against golden baselines';        Section = $null }
-    @{ File = 'Start-API.ps1';                   Desc = 'Start Operational API (local dev, port 8000)';      Section = $null }
+    # ── Refresh ──────────────────────────────────────────────────────
+    @{ File = 'moonwalk_flow.py';            Desc = 'Prefect Flow: ETL + DuckDB + Notion  [recommended]';  Section = 'Refresh' }
+    @{ File = 'Start-Dashboard.ps1';         Desc = 'Launch Dashboard (rebuilds DuckDB if stale)';          Section = $null }
+    @{ File = 'refresh_cli.py';              Desc = 'Lightweight fallback: ETL + DuckDB, no Prefect / Notion'; Section = $null }
+
+    # ── Utilities ────────────────────────────────────────────────────
+    @{ File = 'cleancloud_to_duckdb.py';     Desc = 'Rebuild analytics.duckdb from Parquet files';          Section = 'Utilities' }
+    @{ File = 'notion_kpi_push.py';          Desc = 'Push KPI rows to Notion database (standalone)';        Section = $null }
+    @{ File = 'Start-API.ps1';               Desc = 'Start Operational API (local dev, port 8000)';         Section = $null }
+    @{ File = 'verify_migration.py';         Desc = 'Verify ETL output against golden baselines';           Section = $null }
 )
 
 $Divider = '-' * 70
@@ -66,7 +84,7 @@ function Show-Menu {
         }
 
         $num  = '{0,2}' -f ($i + 1)
-        $file = if ($entry.IsWorkflow) { '>> COMBINED <<'.PadRight(45) } else { $entry.File.PadRight(45) }
+        $file = if ($entry.Label) { $entry.Label.PadRight(45) } elseif ($entry.IsWorkflow) { '>> COMBINED <<'.PadRight(45) } else { $entry.File.PadRight(45) }
         Write-Host "  [$num]  $file $($entry.Desc)"
     }
 
@@ -193,17 +211,10 @@ function Start-Script ([int]$Index) {
     $entry    = $Scripts[$Index]
     $filename = $entry.File
 
-    # Combined workflow: Refresh (no pause) then Dashboard
+    # Combined workflow — use the entry's WorkflowCmd directly
     if ($entry.IsWorkflow) {
-        Write-Host "`n  Launching: Full Refresh + Dashboard"
-        Write-Host "  Refresh data, then open dashboard automatically."
-        Start-Process powershell -ArgumentList (
-            "-ExecutionPolicy Bypass -NoExit -Command " +
-            "cd '$ScriptDir'; " +
-            "& '.\refresh_moonwalk_data.ps1' -NoPause; " +
-            "if (`$LASTEXITCODE -eq 0 -or `$LASTEXITCODE -eq `$null) { & '.\Start-Dashboard.ps1' } " +
-            "else { Write-Host '  Refresh failed - skipping dashboard.' -ForegroundColor Red; Read-Host 'Press Enter to exit' }"
-        )
+        Write-Host "`n  Launching: $($entry.Desc)"
+        Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -NoExit -Command $($entry.WorkflowCmd)"
         Write-Host '  Opened in new window.'
         return
     }
