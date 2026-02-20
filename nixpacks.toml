@@ -1,0 +1,6 @@
+# Railway Nixpacks build configuration — API only.
+# Installs requirements-api.txt instead of requirements.txt to keep the
+# image lean (no Streamlit/DuckDB/Polars on the API dyno).
+
+[phases.install]
+cmds = ["pip install -r requirements-api.txt"]

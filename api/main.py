@@ -25,6 +25,13 @@ async def lifespan(app: FastAPI):
     if not FASTAPI_API_KEY:
         logger.warning("MOONWALK_API_KEY not set — all requests will be rejected")
     init_db()
+    try:
+        from seed_employees import seed
+        n = seed()
+        if n:
+            logger.info("Seeded %d demo employees on first start", n)
+    except Exception as exc:
+        logger.warning("Seed skipped: %s", exc)
     yield
 
 

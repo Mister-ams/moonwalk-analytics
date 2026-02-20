@@ -152,3 +152,7 @@ API_VERSION = "0.1.0"
 OPERATIONAL_DB_PATH = Path(
     os.environ.get("MOONWALK_OPERATIONAL_DB", str(_SCRIPT_DIR / "operational.db"))
 )
+
+# Railway deployment URL — set after `railway up` completes.
+# Used by Appsmith datasource config and local dev docs.
+RAILWAY_API_URL = os.environ.get("RAILWAY_API_URL", "")

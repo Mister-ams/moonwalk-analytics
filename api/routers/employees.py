@@ -9,19 +9,7 @@ router = APIRouter()
 
 
 def _row_to_employee(row) -> Employee:
-    return Employee(
-        id=row["id"],
-        employee_name=row["employee_name"],
-        role=row["role"],
-        department=row["department"],
-        contact_email=row["contact_email"],
-        contact_phone=row["contact_phone"],
-        join_date=row["join_date"],
-        status=row["status"],
-        notes=row["notes"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
-    )
+    return Employee(**dict(row))
 
 
 def _get_or_404(con, employee_id: int) -> Employee:

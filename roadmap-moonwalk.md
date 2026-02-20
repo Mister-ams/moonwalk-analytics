@@ -443,6 +443,31 @@ Cross-cutting: CSV export on every page (st.download_button)
 
 ---
 
+### Tock 10B — Railway Deploy + Appsmith Employee Directory — COMPLETED 2026-02-20
+
+**Focus:** Deploy FastAPI operational API to Railway and provide the Appsmith setup guide for the Employee Directory UI.
+**Scope:** 4 new files, 2 file updates, +3 tests. Railway deploy is manual (CLI steps documented).
+
+| # | Item | Details | Status |
+|---|------|---------|--------|
+| 10B.1 | **`requirements-api.txt`** | FastAPI-only deps for Railway — `fastapi[standard]>=0.111`, `uvicorn[standard]>=0.29`, `python-dotenv>=1.0`. Separate from `requirements.txt` (Streamlit Cloud) to keep each image lean. | Done |
+| 10B.2 | **`nixpacks.toml`** | Tells Railway's Nixpacks builder to `pip install -r requirements-api.txt` instead of the default `requirements.txt`. Prevents Streamlit/DuckDB/Polars from landing on the API dyno. | Done |
+| 10B.3 | **`seed_employees.py`** | 8 demo Moonwalk employees (Operations, Logistics, Production, Finance, Customer Service). Idempotent — skips if table already populated. Run via `railway run python seed_employees.py` after first deploy. | Done |
+| 10B.4 | **`config.py` — `RAILWAY_API_URL`** | New constant read from `RAILWAY_API_URL` env var. Populated after `railway up`. Referenced in `.env.example`. | Done |
+| 10B.5 | **`appsmith/setup.md`** | Step-by-step Appsmith Cloud setup: datasource config (REST API + X-API-Key header), 6 API queries (list, create, update, deactivate, hard-delete), Employee Table widget, Create/Edit modals, status filter. | Done |
+| 10B.6 | **Railway deploy** (manual) | `railway login` → `railway init` → `railway variables set MOONWALK_API_KEY=<uuid>` → `railway up` → `railway run python seed_employees.py`. Verify at `/health` and `/docs`. | Ready |
+| 10B.7 | **Appsmith Employee Directory** (manual) | Build in Appsmith Cloud UI following `appsmith/setup.md`: Table + Add/Edit modals + Deactivate button + status filter. | Ready |
+| 10B.8 | **+3 seed tests** | `test_seed_count_is_sufficient` (≥6 rows), `test_seed_all_employees_active` (all status=active), `test_seed_is_idempotent` (second run returns 0). | Done |
+
+**Key decisions:**
+- Separate `requirements-api.txt` + `nixpacks.toml` rather than polluting `requirements.txt` — Streamlit Cloud and Railway each get a minimal image for their respective roles.
+- SQLite resets on Railway redeploy — acceptable for POC; fix is persistent disk ($0.25/GB) or Postgres migration (Tock M).
+- CORS in `api/main.py` already targets `https://app.appsmith.com` — no change needed.
+
+**Results:** 171 total tests (168 + 3). 16 API tests pass. API code ready for Railway deploy.
+
+---
+
 ### Tick 7B — Dashboard Enhancements ✅ Completed 2026-02-19
 
 **Focus:** Second-wave features that build on the Tick 7 persona structure.

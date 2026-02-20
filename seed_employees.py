@@ -1,0 +1,293 @@
+"""Seed demo employees into the operational SQLite database.
+
+Safe to run multiple times — skips all inserts if the employees table
+already contains rows (idempotent).
+
+Usage:
+    python seed_employees.py                      # local operational.db
+    railway run python seed_employees.py          # Railway SQLite (ephemeral)
+"""
+
+import sys
+from pathlib import Path
+
+from api.database import get_db, init_db
+
+DEMO_EMPLOYEES = [
+    {
+        # Core
+        "employee_name": "Khalid Al-Mansoori",
+        "role": "Store Manager",
+        "department": "Operations",
+        "status": "active",
+        "join_date": "2023-01-15",
+        "contract_type": "permanent",
+        "contract_end_date": None,
+        "notes": "Head of Abu Dhabi branch operations",
+        # Personal
+        "nationality": "Emirati",
+        "date_of_birth": "1985-03-15",
+        "address": "Villa 12, Al Muroor, Abu Dhabi",
+        "emergency_contact_name": "Sara Al-Mansoori",
+        "emergency_contact_phone": "+971-50-111-9901",
+        # Contact
+        "contact_email": "khalid@moonwalkae.com",
+        "contact_phone": "+971-50-111-0001",
+        # Financial
+        "salary": 18000.0,
+        "salary_currency": "AED",
+        "pay_frequency": "monthly",
+        "bank_name": "Emirates NBD",
+        "bank_account": "****4521",
+        "iban": "AE070331234567890001452",
+        # Documents
+        "passport_number": "A12345678",
+        "passport_expiry": "2029-01-20",
+        "visa_type": "citizen",
+        "visa_expiry": None,
+        "emirates_id": "784-1985-1234567-1",
+        "emirates_id_expiry": "2029-03-14",
+    },
+    {
+        "employee_name": "Fatima Bint Salem",
+        "role": "Operations Supervisor",
+        "department": "Operations",
+        "status": "active",
+        "join_date": "2023-03-01",
+        "contract_type": "permanent",
+        "contract_end_date": None,
+        "notes": None,
+        "nationality": "Emirati",
+        "date_of_birth": "1990-07-22",
+        "address": "Apt 5B, Al Nahyan Camp, Abu Dhabi",
+        "emergency_contact_name": "Mohammed Bint Salem",
+        "emergency_contact_phone": "+971-50-111-9902",
+        "contact_email": "fatima@moonwalkae.com",
+        "contact_phone": "+971-50-111-0002",
+        "salary": 12000.0,
+        "salary_currency": "AED",
+        "pay_frequency": "monthly",
+        "bank_name": "ADCB",
+        "bank_account": "****8823",
+        "iban": "AE380030000001234568823",
+        "passport_number": "A87654321",
+        "passport_expiry": "2028-06-15",
+        "visa_type": "citizen",
+        "visa_expiry": None,
+        "emirates_id": "784-1990-7654321-2",
+        "emirates_id_expiry": "2028-07-21",
+    },
+    {
+        "employee_name": "Ahmed Al-Rashidi",
+        "role": "Driver",
+        "department": "Logistics",
+        "status": "active",
+        "join_date": "2023-06-10",
+        "contract_type": "fixed-term",
+        "contract_end_date": "2026-06-09",
+        "notes": "Inside zone coverage",
+        "nationality": "Egyptian",
+        "date_of_birth": "1988-11-05",
+        "address": "Room 4, Labour Accommodation, Mussafah",
+        "emergency_contact_name": "Hassan Al-Rashidi",
+        "emergency_contact_phone": "+20-10-1122-3344",
+        "contact_email": None,
+        "contact_phone": "+971-55-222-0001",
+        "salary": 3200.0,
+        "salary_currency": "AED",
+        "pay_frequency": "monthly",
+        "bank_name": "First Abu Dhabi Bank",
+        "bank_account": "****3301",
+        "iban": "AE200351234567891133301",
+        "passport_number": "A11223344",
+        "passport_expiry": "2027-03-20",
+        "visa_type": "employment",
+        "visa_expiry": "2027-06-10",
+        "emirates_id": "784-1988-1122334-4",
+        "emirates_id_expiry": "2027-06-09",
+    },
+    {
+        "employee_name": "Mohammed Al-Balushi",
+        "role": "Driver",
+        "department": "Logistics",
+        "status": "active",
+        "join_date": "2024-01-20",
+        "contract_type": "fixed-term",
+        "contract_end_date": "2026-12-19",
+        "notes": "Outer zone coverage",
+        "nationality": "Omani",
+        "date_of_birth": "1992-04-18",
+        "address": "Room 11, Labour Accommodation, Mussafah",
+        "emergency_contact_name": "Ali Al-Balushi",
+        "emergency_contact_phone": "+968-9988-7766",
+        "contact_email": None,
+        "contact_phone": "+971-55-222-0002",
+        "salary": 3200.0,
+        "salary_currency": "AED",
+        "pay_frequency": "monthly",
+        "bank_name": "Mashreq Bank",
+        "bank_account": "****7711",
+        "iban": "AE240190001234567897711",
+        "passport_number": "O99887766",
+        "passport_expiry": "2026-09-01",
+        "visa_type": "employment",
+        "visa_expiry": "2026-12-19",
+        "emirates_id": "784-1992-9988776-5",
+        "emirates_id_expiry": "2026-12-18",
+    },
+    {
+        "employee_name": "Reem Al-Nuaimi",
+        "role": "Customer Service Representative",
+        "department": "Customer Service",
+        "status": "active",
+        "join_date": "2023-09-01",
+        "contract_type": "permanent",
+        "contract_end_date": None,
+        "notes": None,
+        "nationality": "Emirati",
+        "date_of_birth": "1995-02-28",
+        "address": "Flat 3A, Khalidiyah, Abu Dhabi",
+        "emergency_contact_name": "Noura Al-Nuaimi",
+        "emergency_contact_phone": "+971-50-333-9905",
+        "contact_email": "reem@moonwalkae.com",
+        "contact_phone": "+971-50-333-0001",
+        "salary": 7500.0,
+        "salary_currency": "AED",
+        "pay_frequency": "monthly",
+        "bank_name": "First Abu Dhabi Bank",
+        "bank_account": "****2244",
+        "iban": "AE200351234567891122244",
+        "passport_number": "A22334455",
+        "passport_expiry": "2030-02-27",
+        "visa_type": "citizen",
+        "visa_expiry": None,
+        "emirates_id": "784-1995-2233445-5",
+        "emirates_id_expiry": "2030-02-27",
+    },
+    {
+        "employee_name": "Samir Haddad",
+        "role": "Lead Presser",
+        "department": "Production",
+        "status": "active",
+        "join_date": "2023-02-14",
+        "contract_type": "fixed-term",
+        "contract_end_date": "2027-02-13",
+        "notes": None,
+        "nationality": "Lebanese",
+        "date_of_birth": "1983-08-12",
+        "address": "Room 22, Al Quoz Labour Camp",
+        "emergency_contact_name": "Layla Haddad",
+        "emergency_contact_phone": "+961-3-556-677",
+        "contact_email": None,
+        "contact_phone": "+971-58-444-0001",
+        "salary": 4500.0,
+        "salary_currency": "AED",
+        "pay_frequency": "monthly",
+        "bank_name": "Emirates NBD",
+        "bank_account": "****6601",
+        "iban": "AE070331234567896666601",
+        "passport_number": "L55667788",
+        "passport_expiry": "2028-11-30",
+        "visa_type": "employment",
+        "visa_expiry": "2028-12-31",
+        "emirates_id": "784-1983-5566778-8",
+        "emirates_id_expiry": "2028-12-30",
+    },
+    {
+        "employee_name": "Nadia Qassem",
+        "role": "Laundry Technician",
+        "department": "Production",
+        "status": "active",
+        "join_date": "2023-11-05",
+        "contract_type": "fixed-term",
+        "contract_end_date": "2026-11-04",
+        "notes": None,
+        "nationality": "Filipino",
+        "date_of_birth": "1994-05-30",
+        "address": "Room 7, Staff Accommodation, Al Quoz",
+        "emergency_contact_name": "Maria Qassem",
+        "emergency_contact_phone": "+63-917-123-4567",
+        "contact_email": None,
+        "contact_phone": "+971-58-444-0002",
+        "salary": 2800.0,
+        "salary_currency": "AED",
+        "pay_frequency": "monthly",
+        "bank_name": "ADCB",
+        "bank_account": "****5502",
+        "iban": "AE380030000001234575502",
+        "passport_number": "P12312312",
+        "passport_expiry": "2027-05-30",
+        "visa_type": "employment",
+        "visa_expiry": "2027-06-30",
+        "emirates_id": "784-1994-1231231-2",
+        "emirates_id_expiry": "2027-06-29",
+    },
+    {
+        "employee_name": "Tariq Bin Essa",
+        "role": "Cashier",
+        "department": "Finance",
+        "status": "active",
+        "join_date": "2024-03-01",
+        "contract_type": "probation",
+        "contract_end_date": "2024-09-01",
+        "notes": "Probation converted to permanent Sep 2024",
+        "nationality": "Bangladeshi",
+        "date_of_birth": "1991-09-14",
+        "address": "Room 3, Staff Accommodation, Mussafah",
+        "emergency_contact_name": "Rahim Bin Essa",
+        "emergency_contact_phone": "+880-17-1234-5678",
+        "contact_email": "tariq@moonwalkae.com",
+        "contact_phone": "+971-50-555-0001",
+        "salary": 3000.0,
+        "salary_currency": "AED",
+        "pay_frequency": "monthly",
+        "bank_name": "Mashreq Bank",
+        "bank_account": "****8807",
+        "iban": "AE240190001234567898807",
+        "passport_number": "B44556677",
+        "passport_expiry": "2026-12-01",
+        "visa_type": "employment",
+        "visa_expiry": "2027-01-15",
+        "emirates_id": "784-1991-4455667-7",
+        "emirates_id_expiry": "2027-01-14",
+    },
+]
+
+_COLUMNS = [
+    "employee_name", "role", "department", "status", "join_date",
+    "contract_type", "contract_end_date", "notes",
+    "nationality", "date_of_birth", "address",
+    "emergency_contact_name", "emergency_contact_phone",
+    "contact_email", "contact_phone",
+    "salary", "salary_currency", "pay_frequency",
+    "bank_name", "bank_account", "iban",
+    "passport_number", "passport_expiry",
+    "visa_type", "visa_expiry",
+    "emirates_id", "emirates_id_expiry",
+]
+
+
+def seed(db_path: Path | None = None) -> int:
+    """Insert demo employees. Returns number of rows inserted (0 if already seeded)."""
+    init_db(db_path)
+    with get_db(db_path) as con:
+        if con.execute("SELECT COUNT(*) FROM employees").fetchone()[0] > 0:
+            return 0
+
+        placeholders = ", ".join("?" for _ in _COLUMNS)
+        col_list = ", ".join(_COLUMNS)
+        for emp in DEMO_EMPLOYEES:
+            con.execute(
+                f"INSERT INTO employees ({col_list}) VALUES ({placeholders})",
+                [emp.get(c) for c in _COLUMNS],
+            )
+    return len(DEMO_EMPLOYEES)
+
+
+if __name__ == "__main__":
+    n = seed()
+    if n == 0:
+        print("Seed skipped: employees table already populated.")
+    else:
+        print(f"Seeded {n} demo employees.")
+    sys.exit(0)

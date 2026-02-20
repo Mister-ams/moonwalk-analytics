@@ -209,3 +209,47 @@ def test_create_missing_name_422():
         headers=AUTH,
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Seed script
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.api
+def test_seed_count_is_sufficient():
+    """Seed inserts at least 6 demo employees into a fresh database."""
+    tmp = Path(tempfile.mktemp(suffix=".db"))
+    from seed_employees import seed
+
+    n = seed(tmp)
+    assert n >= 6
+    tmp.unlink(missing_ok=True)
+
+
+@pytest.mark.api
+def test_seed_all_employees_active():
+    """All seeded employees should have status='active'."""
+    tmp = Path(tempfile.mktemp(suffix=".db"))
+    import api.database as _db
+
+    from seed_employees import seed
+
+    seed(tmp)
+    with _db.get_db(tmp) as con:
+        rows = con.execute("SELECT status FROM employees").fetchall()
+    assert all(r[0] == "active" for r in rows)
+    tmp.unlink(missing_ok=True)
+
+
+@pytest.mark.api
+def test_seed_is_idempotent():
+    """Running seed twice inserts rows only on the first call."""
+    tmp = Path(tempfile.mktemp(suffix=".db"))
+    from seed_employees import seed
+
+    first = seed(tmp)
+    second = seed(tmp)
+    assert first > 0
+    assert second == 0  # skipped — table already populated
+    tmp.unlink(missing_ok=True)
