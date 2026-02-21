@@ -199,8 +199,13 @@ def _fetch_ep_snapshot(con) -> dict | None:
     }
 
 
-def _build_ep_blocks(ep: dict) -> list:
-    """Build a Notion table block for the EP snapshot (4 metrics, MoM, YoY)."""
+def _build_ep_blocks(ep: dict, ts: str) -> list:
+    """Build colored callout cards for EP snapshot: timestamp header + 4 metric cards.
+
+    Each card uses a colored Notion callout with:
+      - Bold metric name + value on lines 1-2
+      - MoM and YoY as color-coded percentages (green/red/gray) on line 3
+    """
     cur = ep["current"]
     mom = ep["mom"]
     yoy = ep["yoy"]
@@ -212,67 +217,57 @@ def _build_ep_blocks(ep: dict) -> list:
             return f"Dhs {float(val):,.0f}"
         return f"{int(val):,}"
 
-    def fmt_pct(val):
+    def pct_rt(val) -> list:
+        """Rich text fragment for a % change, color-coded green/red/gray."""
         if val is None:
-            return "—"
+            return [{"type": "text", "text": {"content": "—"}, "annotations": {"color": "gray"}}]
         sign = "+" if val > 0 else ""
-        return f"{sign}{val:.1f}%"
-
-    def cell(text, bold=False):
-        obj = {"type": "text", "text": {"content": text}}
-        if bold:
-            obj["annotations"] = {"bold": True}
-        return [obj]
+        color = "green" if val > 0 else "red" if val < 0 else "gray"
+        return [{"type": "text", "text": {"content": f"{sign}{val:.1f}%"}, "annotations": {"color": color}}]
 
     METRICS = [
-        ("Revenue", "revenue"),
-        ("Customers", "customers"),
-        ("Items", "items"),
-        ("Stops", "stops"),
+        ("revenue", "💰", "Revenue", "purple_background"),
+        ("customers", "👥", "Customers", "blue_background"),
+        ("items", "🧺", "Items", "green_background"),
+        ("stops", "🚚", "Stops", "red_background"),
     ]
 
-    header_row = {
-        "object": "block",
-        "type": "table_row",
-        "table_row": {
-            "cells": [
-                cell("Metric", bold=True),
-                cell(ep["period"], bold=True),
-                cell("vs Prior Month", bold=True),
-                cell("vs Prior Year", bold=True),
-            ]
-        },
-    }
+    blocks = [
+        {
+            "object": "block",
+            "type": "callout",
+            "callout": {
+                "rich_text": [{"type": "text", "text": {"content": f"{ep['period']}  ·  Updated {ts}"}}],
+                "icon": {"type": "emoji", "emoji": "🔄"},
+                "color": "gray_background",
+            },
+        }
+    ]
 
-    data_rows = []
-    for label, key in METRICS:
-        data_rows.append(
+    for key, emoji, label, color in METRICS:
+        rich_text = (
+            [
+                {"type": "text", "text": {"content": f"{label}\n"}, "annotations": {"bold": True}},
+                {"type": "text", "text": {"content": f"{fmt_val(key, cur.get(key))}\n"}, "annotations": {"bold": True}},
+                {"type": "text", "text": {"content": "MoM  "}},
+            ]
+            + pct_rt(mom.get(key))
+            + [{"type": "text", "text": {"content": "   ·   YoY  "}}]
+            + pct_rt(yoy.get(key))
+        )
+        blocks.append(
             {
                 "object": "block",
-                "type": "table_row",
-                "table_row": {
-                    "cells": [
-                        cell(label, bold=True),
-                        cell(fmt_val(key, cur.get(key))),
-                        cell(fmt_pct(mom.get(key))),
-                        cell(fmt_pct(yoy.get(key))),
-                    ]
+                "type": "callout",
+                "callout": {
+                    "rich_text": rich_text,
+                    "icon": {"type": "emoji", "emoji": emoji},
+                    "color": color,
                 },
             }
         )
 
-    return [
-        {
-            "object": "block",
-            "type": "table",
-            "table": {
-                "table_width": 4,
-                "has_column_header": True,
-                "has_row_header": True,
-                "children": [header_row] + data_rows,
-            },
-        }
-    ]
+    return blocks
 
 
 def _build_weekly_callout(wctx: dict) -> dict:
@@ -494,13 +489,14 @@ def run(log=print):
     from notion_client import Client
 
     notion_client = Client(auth=NOTION_API_KEY)
+    ts = datetime.datetime.now().strftime("%d %b %Y %H:%M")
 
     # Push EP snapshot (direct DuckDB query, no database storage)
     if ep:
         log(f"Notion push: updating EP snapshot ({ep['period']})...")
         ep_toggle_id = _find_or_create_toggle(notion_client, NOTION_PAGE_ID, _EP_HEADING, log)
         _clear_block_children(notion_client, ep_toggle_id)
-        notion_client.blocks.children.append(ep_toggle_id, children=_build_ep_blocks(ep))
+        notion_client.blocks.children.append(ep_toggle_id, children=_build_ep_blocks(ep, ts))
         log("Notion push: EP snapshot published")
 
     # Push LLM insights + weekly signals
@@ -508,7 +504,6 @@ def run(log=print):
     container_id = _find_or_create_insights_toggle(notion_client, NOTION_PAGE_ID, log)
     _clear_block_children(notion_client, container_id)
 
-    ts = datetime.datetime.now().strftime("%d %b %Y %H:%M")
     blocks = _build_insight_blocks(ts, ctx["period"], sections, notion_token=NOTION_TOKEN)
     if wctx:
         blocks.append(_build_weekly_callout(wctx))
