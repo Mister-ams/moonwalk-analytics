@@ -4,13 +4,13 @@ type: roadmap
 status: active
 created: 2026-02-21
 updated: 2026-02-21
-version: 1.1
+version: 1.2
 ---
 
 # Employee HR Database — Project Roadmap
 
 **Objective**
-Auto-populating employee database driven by structured documents uploaded to OneDrive. Extracts employee profile, salary, and compliance data from PDFs; surfaces expiry alerts and compliance status; managed via Appsmith portal with RBAC.
+Extract structured employee data from UAE MOHRE labour contract PDFs into a locally operated database. Priority is clearing the PDF extraction technical hurdle and producing a usable CSV/Excel roster locally. Cloud-native infrastructure (OneDrive sync, Postgres, RBAC, Appsmith portal) follows in a later phase once local operation is proven.
 
 **GitHub**: `Mister-ams/moonwalk-employee-hr`
 
@@ -143,15 +143,14 @@ _Local PoC delivered: parser + SQLite working. OneDrive integration and Appsmith
 - [P2][M] Appsmith employee detail page displays salary and contract expiry for the inserted employee
 - [RT-SEC-001] `onedrive-sync` validates Graph `clientState` + `validationToken` handshake; rejects unsigned payloads before enqueueing
 
-**Sprint 2 — POC Tock** (6 pts)
-Goal: Schema validation, idempotency, baseline RBAC, audit trail.
+**Sprint 2 — Local Operations Tick** (5 pts)
+Goal: Batch ingest a folder of contract PDFs, produce a usable CSV/Excel roster locally. No cloud infrastructure.
 
-- [P1][S] `doc-normalizer` rejects a malformed PDF with deterministic error code `PARSE_VALIDATION_FAILED`
-- [P1][S] `doc-normalizer` routes low-confidence records (< 0.95) to Appsmith exception queue with per-field confidence scores
-- [P1][M] Reprocessing the same `file_id` does not create duplicate rows in hr-postgres (idempotent upsert on `employee_id` + `file_id`)
-- [P1][M] `employee-api` returns HTTP 403 for salary fields when called with a non-Payroll Analyst token
-- [P2][S] `audit-alerts` writes one audit event linking `source_document_id` -> `target_employee_id` per successful upsert
-- [RT-SEC-001] `onedrive-sync` returns HTTP 401 when `clientState` is missing or mismatched
+- [P1][M] `ingest_folder.py` processes all PDFs in a target directory, skips already-ingested files (idempotent on `passport_number` / `mohre_transaction_no`)
+- [P1][M] `export_employees.py` exports SQLite → `employees.csv` with all fields + `days_until_expiry` column + `expiry_flag` (True if < 30 days)
+- [P1][S] `exceptions.csv` written alongside — one row per failed/low-confidence PDF with per-field scores
+- [P2][S] `ingest_folder.py` prints a summary table on completion: total processed, stored, skipped, failed
+- [P2][S] `employees.csv` opens cleanly in Excel with correct column types (dates as YYYY-MM-DD, numbers as numeric)
 
 ---
 

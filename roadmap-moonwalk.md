@@ -3,7 +3,7 @@ project: moonwalk
 type: roadmap
 status: active
 created: 2026-02-16
-updated: 2026-02-21 (v6.1 — post Tick 11)
+updated: 2026-02-21 (v6.2 — post Tick 11 bugfixes)
 ---
 
 # Moonwalk Analytics — Master Project Roadmap
@@ -58,7 +58,7 @@ This roadmap serves the **analytics layer** of the SME Internal Operating System
 | **Tick 10** | **Feature** | **Prefect orchestration + Notion KPI database: `moonwalk_flow.py` (4 tasks: validate CSVs, ETL, DuckDB, Notion narrative + KPI DB), `notion_kpi_push.py` (last 6 months + 13 weeks upserted to Notion database, auto-create on first run), `NOTION_KPI_DB_ID` in `config.py`, `prefect>=3.0` in `pyproject.toml`. 4 new flow tests. 168 total tests. Launcher restructured: Workflows (Prefect [1] / Legacy [2]) → Refresh (flow, dashboard, CLI fallback) → Utilities; `refresh_moonwalk_data.ps1` removed from primary stream, accessible via Launcher [2] only. Decision: openpyxl not viable as Excel COM replacement — cannot refresh PowerPivot connections; Excel leg stays legacy-only with no planned investment.** |
 | **Tock 10A** | **Quality** | **First-run operational fixes: removed `input()` blocking calls from `cleancloud_to_excel_MASTER.py` (was blocking Prefect mid-flow); added per-step timing + performance summary to `moonwalk_flow.py`; distinct launcher labels for workflow entries (was `>> COMBINED <<` for both); fixed Notion KPI SQL (`s.IsCurrentMonth` → `s.OrderCohortMonth < date_trunc(...)`, `s.IsCurrentISOWeek` → `p.IsCurrentISOWeek` via existing dim_period join); DuckDB `.tmp` retry loop (5×1s) in `cleancloud_to_duckdb.py`; `.tmp` promotion in `Start-Dashboard.ps1` before freshness check to avoid double-rebuild; `NOTION_KPI_DB_ID` saved to `secrets.toml`. First complete end-to-end Prefect run: 18.7s total.** |
 | **Tock 10B** | **Quality** | **Railway deploy + Appsmith Employee Directory: `requirements-api.txt`, `nixpacks.toml`, `seed_employees.py` (8 demo employees, idempotent lifespan seeding), `RAILWAY_API_URL` in config, `appsmith/setup.md`. FastAPI live at `moonwalk-api-production.up.railway.app`. 171 total tests (+3 seed tests).** |
-| **Tick 11** | **Feature** | **Notion Intelligence Layer upgrade: weekly insights (8 WoW rules in `insights` table with `granularity` column); EP snapshot as colored callout cards (💰 Revenue / 👥 Customers / 🧺 Items / 🚚 Stops with color-coded MoM/YoY percentages); `📈 Executive Pulse` and `📊 Latest Insights` toggles on portal page; `_find_or_create_toggle()` generic helper; `_resolve_db_path()` for `.tmp` handling; Notion KPI database push removed from flow. Total flow time: ~26s. Fixed: Notion API version pin, insights fan-out CTE bug, weekly period date-parsing.** |
+| **Tick 11** | **Feature** | **Notion Intelligence Layer upgrade: weekly insights (8 WoW rules in `insights` table with `granularity` column); EP snapshot as colored callout cards (💰 Revenue / 👥 Customers / 🧺 Items / 🚚 Stops) — each card shows last closed month + weekly row (WoW for revenue/items/stops, new customers for weekly); `_EP_HEADING = "📈 Headline Indicators"` (page section match); `_find_or_create_toggle()` generic helper; `_resolve_db_path()` for `.tmp` handling; Notion KPI database push removed from flow. `customers` table: `CustomerID_Raw`, `Phone`, `Email` columns added. Total flow time: ~25s. Fixed: Notion API version pin, insights fan-out CTE bug, weekly period date-parsing, dim_period lookahead returning future ISO week (anchored to sales data).** |
 
 ### Items Resolved (Previously Listed as Open)
 
@@ -484,15 +484,20 @@ Cross-cutting: CSV export on every page (st.download_button)
 | 11.5 | **Remove KPI database push from flow** | `push_notion_kpi_database` task removed from `moonwalk_flow.py`. `notion_kpi_push.py` kept as standalone script. Flow now: validate → ETL → DuckDB → Notion narrative. ~26s total (was ~55s). | Done |
 | 11.6 | **`_resolve_db_path()` in flow** | Helper returns `.tmp` path if newer than live DB (e.g. when dashboard holds write lock). Notion tasks patch `module.DB_PATH` to the resolved path before calling `run()`. | Done |
 | 11.7 | **Bug fixes** | (a) Notion API version pin: `notion_version="2022-06-28"` on `Client` + `client.request()` for `databases/query` (retired in Notion-Version 2025-09-03). (b) Fan-out bug in `insights_latest` CTE: added `QUALIFY ROW_NUMBER() OVER (PARTITION BY ins.period ORDER BY ins.rule_id) = 1`. (c) Weekly period date-parsing: `WHERE granularity = 'monthly'` added to both `FROM insights` subqueries in `_fetch_context()` to prevent `"2026-W07"` from reaching `CAST(... || '-01' AS DATE)`. | Done |
+| 11.8 | **Post-completion fixes** | (a) `_EP_HEADING` changed from `"📈 Executive Pulse"` to `"📈 Headline Indicators"` — old name caused duplicate toggle at page bottom each run (Notion section was manually renamed). Orphaned blocks deleted via `notion_client.blocks.delete()`. (b) Weekly row per EP metric card: `_fetch_ep_weekly_snapshot()` added with CTEs anchored to `sales` data (not `dim_period` which has 3-month future lookahead causing `MAX(ISOWeekLabel) WHERE IsCurrentISOWeek = FALSE` to return future week `2026-W22`). Customers card weekly key → `new_customers` (first-ever-earned-order within the week). (c) `customers` table: `CustomerID_Raw` (INT32 raw CC id), `Phone`, `Email` columns added by user for invoice automation cross-referencing; `idx_customers_raw_id` index added. | Done |
 
-**Notion portal after Tick 11:**
+**Notion portal after Tick 11 (final):**
 ```
-📈 Executive Pulse (toggle)
+📈 Headline Indicators (toggle)
   🔄 Jan 2026  ·  Updated 21 Feb 2026
   💰 Revenue    / Dhs 36,921  / MoM +X%  · YoY —   (purple background)
+              2026-W07  Dhs 9,199   WoW -17.3%
   👥 Customers  / 301         / MoM -10% · YoY —   (blue background)
+              2026-W07  14 new   WoW -6.7%
   🧺 Items      / 1,234       / MoM +X%  · YoY —   (green background)
+              2026-W07  1,864 items   WoW +X%
   🚚 Stops      / 584         / MoM -X%  · YoY —   (red background)
+              2026-W07  316 stops   WoW +X%
 
 📊 Latest Insights (toggle)
   🔄 Updated 21 Feb 2026  |  2026-01 + 2026-W07
@@ -503,7 +508,7 @@ Cross-cutting: CSV export on every page (st.download_button)
   📆 Weekly Signals — 2026-W07 [8 rule-based WoW signals]
 ```
 
-**Results:** 171 tests unchanged. Flow: 26.3s total. Cloud deployed master `7dc1d9b`.
+**Results:** 171 tests unchanged. Flow: ~25s total. Cloud deployed master `4204c5d`.
 
 ---
 
