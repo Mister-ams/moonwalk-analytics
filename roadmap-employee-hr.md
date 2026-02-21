@@ -3,8 +3,8 @@ project: employee-hr
 type: roadmap
 status: active
 created: 2026-02-21
-updated: 2026-02-21
-version: 1.2
+updated: 2026-02-22
+version: 1.4
 ---
 
 # Employee HR Database — Project Roadmap
@@ -143,14 +143,38 @@ _Local PoC delivered: parser + SQLite working. OneDrive integration and Appsmith
 - [P2][M] Appsmith employee detail page displays salary and contract expiry for the inserted employee
 - [RT-SEC-001] `onedrive-sync` validates Graph `clientState` + `validationToken` handshake; rejects unsigned payloads before enqueueing
 
-**Sprint 2 — Local Operations Tick** (5 pts)
-Goal: Batch ingest a folder of contract PDFs, produce a usable CSV/Excel roster locally. No cloud infrastructure.
+**Sprint 2 — Local Operations Tick** (5 pts) — COMPLETED 2026-02-21
+Goal: Batch ingest a folder of contract PDFs, produce a usable CSV/Excel roster locally. Cloud-ready FastAPI included.
 
-- [P1][M] `ingest_folder.py` processes all PDFs in a target directory, skips already-ingested files (idempotent on `passport_number` / `mohre_transaction_no`)
-- [P1][M] `export_employees.py` exports SQLite → `employees.csv` with all fields + `days_until_expiry` column + `expiry_flag` (True if < 30 days)
-- [P1][S] `exceptions.csv` written alongside — one row per failed/low-confidence PDF with per-field scores
-- [P2][S] `ingest_folder.py` prints a summary table on completion: total processed, stored, skipped, failed
-- [P2][S] `employees.csv` opens cleanly in Excel with correct column types (dates as YYYY-MM-DD, numbers as numeric)
+**What was built:**
+- `ingest_folder.py` — batch PDF directory, idempotent on `passport_number` / `mohre_transaction_no`, summary table, writes `exceptions.csv` for low-confidence records
+- `export_employees.py` — SQLite → `employees.csv` with `days_until_expiry` + `expiry_flag` (True if < 30 days); dates YYYY-MM-DD, numbers numeric
+- `main.py` + `routers/` — FastAPI service: `GET /health`, `GET /employees`, `GET /employees/{id}`, `POST /ingest` (PDF upload), `GET /export/csv`
+- `config.py` — `HR_DB_PATH` + `HR_API_KEY` env-var overrides, `CONFIDENCE_THRESHOLD`, `EXPIRY_WARNING_DAYS`
+- `auth.py` — `X-API-Key` dependency, fail-closed, reads at request time
+- `Procfile`, `requirements.txt`, `.env.example`, `.gitignore` — Railway-ready
+
+**Validated:**
+- `export_employees.py` exports EID-1001 with `days_until_expiry=510`, `expiry_flag=False`
+- All 9 FastAPI routes registered and app imports cleanly
+
+**Note on SQLite + Railway**: Without a mounted volume, DB resets on each deploy. Set `HR_DB_PATH=/data/employees.db` with a volume for persistence. Postgres migration is Sprint 3.
+
+---
+
+**Sprint 2B — Appsmith HR Portal Bootstrap** — COMPLETED 2026-02-22
+Goal: Live Appsmith HR Portal connected to the Railway API — employee list, PDF upload, CSV download.
+
+**What was built:**
+- `HRApi` datasource in Appsmith (base URL `https://moonwalk-employee-hr-production.up.railway.app`, `X-API-Key` header)
+- 4 queries: `GetEmployees` (GET /employees, run on page load), `GetEmployee` (GET /employees/{id}, on row click), `IngestPDF` (POST /ingest, MULTIPART_FORM_DATA, file field), `ExportCSV` (GET /export/csv)
+- UI: HR Portal title, `EmployeeTable` bound to `{{GetEmployees.data}}`, `FilePicker1`, Upload Contract button (`{{IngestPDF.run()}}`), Download CSV button (`{{ExportCSV.run()}}`)
+- App deployed at: `https://app.appsmith.com/app/hr-portal/page1-699a032d2267980abdf9034d`
+- Setup guide: `appsmith/hr-portal-setup.md` in `Mister-ams/moonwalk-employee-hr`
+
+**Validated:**
+- `EmployeeTable` loads EID-1001 (Frank Ssebaggala) from Railway API on page load — 1 record confirmed
+- App published and accessible via shareable URL
 
 ---
 
