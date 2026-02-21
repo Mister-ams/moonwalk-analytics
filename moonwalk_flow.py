@@ -111,19 +111,6 @@ def push_notion_narrative():
         log.warning(f"Notion narrative push failed (non-fatal): {exc}")
 
 
-@task(name="push-notion-kpi-database", retries=2, retry_delay_seconds=10)
-def push_notion_kpi_database():
-    """Upsert KPI rows into Notion KPI database (6 months + 13 weeks, non-fatal)."""
-    log = get_run_logger()
-    try:
-        import notion_kpi_push
-
-        notion_kpi_push.DB_PATH = _resolve_db_path()
-        notion_kpi_push.run(log=log.info)
-    except Exception as exc:
-        log.warning(f"Notion KPI push failed (non-fatal): {exc}")
-
-
 # =====================================================================
 # FLOW
 # =====================================================================
@@ -131,7 +118,7 @@ def push_notion_kpi_database():
 
 @flow(name="moonwalk-refresh", log_prints=True)
 def moonwalk_refresh():
-    """Full Moonwalk Analytics refresh: ETL -> DuckDB -> Notion narrative + KPI database."""
+    """Full Moonwalk Analytics refresh: ETL -> DuckDB -> Notion (EP snapshot + insights)."""
     log = get_run_logger()
     flow_start = time.time()
     timings: dict[str, float] = {}
@@ -145,7 +132,6 @@ def moonwalk_refresh():
     _run("ETL pipeline", run_etl)
     _run("DuckDB rebuild", run_duckdb)
     _run("Notion narrative", push_notion_narrative)
-    _run("Notion KPI DB", push_notion_kpi_database)
 
     total = time.time() - flow_start
     log.info("")
