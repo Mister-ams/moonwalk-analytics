@@ -19,6 +19,23 @@ from prefect import flow, task, get_run_logger
 
 from config import DB_PATH, LOCAL_STAGING_PATH
 
+
+def _resolve_db_path():
+    """Return the freshest readable DuckDB path.
+
+    After a rebuild the live file may still be locked by the dashboard;
+    cleancloud_to_duckdb.py writes the new DB to DB_PATH + '.tmp' in that case.
+    This function returns the .tmp path if it is newer than the live file,
+    otherwise returns the live DB_PATH.
+    """
+    tmp = DB_PATH.with_suffix(".duckdb.tmp")
+    if tmp.exists():
+        live_mtime = DB_PATH.stat().st_mtime if DB_PATH.exists() else 0
+        if tmp.stat().st_mtime > live_mtime:
+            return tmp
+    return DB_PATH
+
+
 _REQUIRED_CSVS = [
     "All_Sales_Python.csv",
     "All_Customers_Python.csv",
@@ -39,9 +56,7 @@ def validate_source_csvs():
     log = get_run_logger()
     missing = [f for f in _REQUIRED_CSVS if not (LOCAL_STAGING_PATH / f).exists()]
     if missing:
-        raise FileNotFoundError(
-            f"Missing required CSVs in {LOCAL_STAGING_PATH}: {', '.join(missing)}"
-        )
+        raise FileNotFoundError(f"Missing required CSVs in {LOCAL_STAGING_PATH}: {', '.join(missing)}")
     log.info(f"Validated {len(_REQUIRED_CSVS)} source CSVs in {LOCAL_STAGING_PATH}")
 
 
@@ -64,7 +79,19 @@ def run_duckdb():
     import cleancloud_to_duckdb
 
     cleancloud_to_duckdb.main()
-    if DB_PATH.exists():
+
+    # Try to promote .tmp -> live; if locked by dashboard, log and continue.
+    # Subsequent tasks use _resolve_db_path() to prefer .tmp when it is fresher.
+    tmp_path = DB_PATH.with_suffix(".duckdb.tmp")
+    if tmp_path.exists():
+        try:
+            import shutil
+
+            shutil.move(str(tmp_path), str(DB_PATH))
+            log.info(f"DuckDB rebuild complete - promoted .tmp to {DB_PATH}")
+        except Exception:
+            log.warning(f"DuckDB rebuild complete - live file locked, .tmp retained at {tmp_path}")
+    elif DB_PATH.exists():
         size_mb = DB_PATH.stat().st_size / (1024 * 1024)
         log.info(f"DuckDB rebuild complete - {size_mb:.1f} MB at {DB_PATH}")
     else:
@@ -76,9 +103,10 @@ def push_notion_narrative():
     """Push GPT-4o-mini narrative insights to Notion portal toggle (non-fatal)."""
     log = get_run_logger()
     try:
-        from notion_push import run as notion_run
+        import notion_push
 
-        notion_run(log=log.info)
+        notion_push.DB_PATH = _resolve_db_path()
+        notion_push.run(log=log.info)
     except Exception as exc:
         log.warning(f"Notion narrative push failed (non-fatal): {exc}")
 
@@ -88,9 +116,10 @@ def push_notion_kpi_database():
     """Upsert KPI rows into Notion KPI database (6 months + 13 weeks, non-fatal)."""
     log = get_run_logger()
     try:
-        from notion_kpi_push import run as kpi_run
+        import notion_kpi_push
 
-        kpi_run(log=log.info)
+        notion_kpi_push.DB_PATH = _resolve_db_path()
+        notion_kpi_push.run(log=log.info)
     except Exception as exc:
         log.warning(f"Notion KPI push failed (non-fatal): {exc}")
 
