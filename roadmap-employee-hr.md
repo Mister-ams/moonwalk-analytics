@@ -4,12 +4,47 @@ type: roadmap
 status: active
 created: 2026-02-21
 updated: 2026-02-21
+version: 1.1
 ---
 
 # Employee HR Database — Project Roadmap
 
 **Objective**
 Auto-populating employee database driven by structured documents uploaded to OneDrive. Extracts employee profile, salary, and compliance data from PDFs; surfaces expiry alerts and compliance status; managed via Appsmith portal with RBAC.
+
+**GitHub**: `Mister-ams/moonwalk-employee-hr`
+
+---
+
+## Cycle History
+
+### Sprint 1 — POC Tick — COMPLETED 2026-02-21
+
+Delivered a working end-to-end local pipeline: drop a contract PDF → extract 10 fields → store in SQLite with EID-10xx employee ID.
+
+**What was built:**
+- `parse_contract.py` — pdfplumber + regex field extraction with per-field confidence scoring
+- `db.py` — SQLite schema, EID sequence (`EID-1001`, `EID-1002`, ...), idempotent upsert
+- `ingest_contract.py` — CLI entry point; routes low-confidence records to exception output
+
+**Validated against:** Frank Ssebaggala — `Frank Labour contract.pdf` (MOHRE standard, 2-page bilingual)
+- All 10 fields extracted at confidence 1.00
+- EID-1001 assigned; re-ingest confirmed idempotent (one record after two runs)
+
+**Key findings from real PDF:**
+- MOHRE contracts are machine-readable (text layer present) — no OCR needed
+- Standard government template — regex patterns will generalise across all UAE labour contracts
+- `insurance_status` confirmed NOT present in contract PDF — will be `null` until Sprint 3 (benefits form)
+- pdfplumber bilingual table extraction requires 3 non-obvious pattern adjustments (documented in `CLAUDE.md`)
+
+**Open items resolved:**
+- [x] PDF quality: machine-readable confirmed
+- [x] insurance_status source: confirmed missing from contract — separate benefits document (Sprint 3)
+
+**Open items remaining:**
+- [ ] Entra app registration (`Files.Read.All` + webhook rights) — needed before OneDrive integration
+- [ ] Alert delivery channel (email vs Slack) — needed before Sprint 5
+- [ ] Appsmith Entra ID OIDC approach — needed before Sprint 2 RBAC work
 
 ---
 
@@ -98,8 +133,9 @@ Appsmith HR Portal     <- employee list, compliance dashboard, exception queue, 
 
 ### POC — Single contract PDF, end-to-end
 
-**Sprint 1 — POC Tick** (8 pts)
+**Sprint 1 — POC Tick** (8 pts) — COMPLETED 2026-02-21
 Goal: One contract PDF lands in OneDrive, gets parsed, upserts to hr-postgres, visible in Appsmith.
+_Local PoC delivered: parser + SQLite working. OneDrive integration and Appsmith deferred to Sprint 2._
 
 - [P1][M] `onedrive-sync` receives a test Graph webhook for `/HR/Contracts/` and stores one file reference with `status=queued`
 - [P1][M] `doc-normalizer` extracts all 7 required fields from a sample contract PDF with confidence >= 0.95
