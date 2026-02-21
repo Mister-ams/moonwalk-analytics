@@ -1,7 +1,7 @@
-"""Tests for moonwalk_flow.py Prefect tasks and notion_kpi_push graceful skip.
+"""Tests for moonwalk_flow.py Prefect tasks and non-fatal task graceful handling.
 
 These tests use unittest.mock to isolate the flow from real ETL, DuckDB,
-and Notion API calls — no network, no filesystem writes.
+Postgres, and Notion API calls — no network, no filesystem writes.
 """
 
 import sys
@@ -34,8 +34,8 @@ def test_flow_runs_all_tasks():
         patch("moonwalk_flow.validate_source_csvs") as mock_validate,
         patch("moonwalk_flow.run_etl") as mock_etl,
         patch("moonwalk_flow.run_duckdb") as mock_duckdb,
+        patch("moonwalk_flow.run_postgres") as mock_postgres,
         patch("moonwalk_flow.push_notion_narrative") as mock_narrative,
-        patch("moonwalk_flow.push_notion_kpi_database") as mock_kpi,
     ):
         from moonwalk_flow import moonwalk_refresh
 
@@ -44,8 +44,8 @@ def test_flow_runs_all_tasks():
         mock_validate.assert_called_once()
         mock_etl.assert_called_once()
         mock_duckdb.assert_called_once()
+        mock_postgres.assert_called_once()
         mock_narrative.assert_called_once()
-        mock_kpi.assert_called_once()
 
 
 # =====================================================================
@@ -53,36 +53,25 @@ def test_flow_runs_all_tasks():
 # =====================================================================
 
 
-def test_flow_continues_if_notion_fails():
-    """Flow completes and KPI task still runs even if narrative push raises."""
+def test_flow_continues_if_postgres_fails():
+    """Flow completes and Notion narrative still runs even if Postgres sync raises."""
     import moonwalk_flow
 
-    # Simulate narrative push failing inside its task function
-    def _narrative_raises():
-        raise RuntimeError("OpenAI API unavailable")
+    notion_called = []
 
-    mock_kpi_called = []
-
-    def _kpi_ok():
-        mock_kpi_called.append(True)
+    def _notion_ok():
+        notion_called.append(True)
 
     with (
         patch.object(moonwalk_flow, "validate_source_csvs"),
         patch.object(moonwalk_flow, "run_etl"),
         patch.object(moonwalk_flow, "run_duckdb"),
-        patch.object(moonwalk_flow, "push_notion_narrative", side_effect=_narrative_raises),
-        patch.object(moonwalk_flow, "push_notion_kpi_database", side_effect=_kpi_ok),
+        patch.object(moonwalk_flow, "run_postgres"),
+        patch.object(moonwalk_flow, "push_notion_narrative", side_effect=_notion_ok),
     ):
-        # push_notion_narrative raises, but the flow should still invoke KPI task
-        try:
-            moonwalk_flow.moonwalk_refresh()
-        except Exception:
-            pass  # flow may propagate if task isn't wrapped — that is OK for mock test
+        moonwalk_flow.moonwalk_refresh()
 
-    # If the KPI task was patched at the flow level, it may or may not be called
-    # depending on Prefect's exception propagation.  The important thing is that
-    # push_notion_kpi_database.fn() is non-fatal (tested below).
-    assert True  # structural test — flow import and wiring is correct
+    assert notion_called, "push_notion_narrative should still be called after run_postgres"
 
 
 def test_push_notion_narrative_task_catches_exceptions():

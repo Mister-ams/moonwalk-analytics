@@ -1,5 +1,7 @@
 streamlit>=1.40
 duckdb>=1.4
+psycopg2-binary>=2.9
+sqlalchemy>=2.0
 plotly>=5.0
 polars>=1.0
 fpdf2>=2.8

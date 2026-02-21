@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from prefect import flow, task, get_run_logger
 
-from config import DB_PATH, LOCAL_STAGING_PATH
+from config import ANALYTICS_DATABASE_URL, DB_PATH, LOCAL_STAGING_PATH
 
 
 def _resolve_db_path():
@@ -98,6 +98,30 @@ def run_duckdb():
         log.info("DuckDB rebuild complete")
 
 
+@task(name="run-postgres", retries=1, retry_delay_seconds=5)
+def run_postgres():
+    """Bulk-load Parquet files into Railway Postgres analytics schema (non-fatal).
+
+    Skips silently when ANALYTICS_DATABASE_URL is not configured so the flow
+    continues to work in local/DuckDB-only environments.
+    """
+    log = get_run_logger()
+    if not ANALYTICS_DATABASE_URL:
+        log.info("ANALYTICS_DATABASE_URL not set — skipping Postgres sync")
+        return
+    try:
+        import cleancloud_to_postgres
+
+        summary = cleancloud_to_postgres.main()
+        rows = {k: v for k, v in summary.items() if k != "elapsed_s"}
+        log.info(
+            f"Postgres sync complete in {summary.get('elapsed_s', 0):.1f}s — "
+            + ", ".join(f"{k}={v}" for k, v in rows.items())
+        )
+    except Exception as exc:
+        log.warning(f"Postgres sync failed (non-fatal): {exc}")
+
+
 @task(name="push-notion-narrative", retries=2, retry_delay_seconds=10)
 def push_notion_narrative():
     """Push GPT-4o-mini narrative insights to Notion portal toggle (non-fatal)."""
@@ -118,7 +142,7 @@ def push_notion_narrative():
 
 @flow(name="moonwalk-refresh", log_prints=True)
 def moonwalk_refresh():
-    """Full Moonwalk Analytics refresh: ETL -> DuckDB -> Notion (EP snapshot + insights)."""
+    """Full Moonwalk Analytics refresh: ETL -> DuckDB -> Postgres -> Notion."""
     log = get_run_logger()
     flow_start = time.time()
     timings: dict[str, float] = {}
@@ -131,6 +155,7 @@ def moonwalk_refresh():
     _run("Validate CSVs", validate_source_csvs)
     _run("ETL pipeline", run_etl)
     _run("DuckDB rebuild", run_duckdb)
+    _run("Postgres sync", run_postgres)
     _run("Notion narrative", push_notion_narrative)
 
     total = time.time() - flow_start

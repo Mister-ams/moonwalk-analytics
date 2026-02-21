@@ -149,10 +149,52 @@ FASTAPI_PORT = int(os.environ.get("MOONWALK_API_PORT", "8000"))
 API_VERSION = "0.1.0"
 
 # Operational SQLite (separate from analytics.duckdb)
-OPERATIONAL_DB_PATH = Path(
-    os.environ.get("MOONWALK_OPERATIONAL_DB", str(_SCRIPT_DIR / "operational.db"))
-)
+OPERATIONAL_DB_PATH = Path(os.environ.get("MOONWALK_OPERATIONAL_DB", str(_SCRIPT_DIR / "operational.db")))
 
 # Railway deployment URL — set after `railway up` completes.
 # Used by Appsmith datasource config and local dev docs.
 RAILWAY_API_URL = os.environ.get("RAILWAY_API_URL", "")
+
+# =====================================================================
+# POSTGRES ANALYTICS DATABASE (Tock M — parallel with DuckDB during migration)
+# =====================================================================
+
+
+def _get_analytics_database_url():
+    """Load Postgres DATABASE_URL for the analytics schema.
+
+    Returns empty string when not configured — callers (db.database, dashboard)
+    fall back to DuckDB during the parallel-run migration period.
+    """
+    url = os.environ.get("ANALYTICS_DATABASE_URL")
+    if url:
+        return url
+    try:
+        import streamlit as st
+
+        return st.secrets.get("ANALYTICS_DATABASE_URL", "")
+    except Exception:
+        return ""
+
+
+ANALYTICS_DATABASE_URL = _get_analytics_database_url()
+
+
+def _get_encryption_key():
+    """Load symmetric encryption key for pgcrypto PII columns (Phone, Email).
+
+    Replaces DUCKDB_KEY for Postgres deployments. DUCKDB_KEY is retained
+    until Phase M6 when DuckDB is retired.
+    """
+    key = os.environ.get("MOONWALK_ENCRYPTION_KEY")
+    if key:
+        return key
+    try:
+        import streamlit as st
+
+        return st.secrets.get("ENCRYPTION_KEY", "")
+    except Exception:
+        return ""
+
+
+ENCRYPTION_KEY = _get_encryption_key()
