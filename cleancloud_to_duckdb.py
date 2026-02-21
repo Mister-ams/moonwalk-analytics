@@ -388,6 +388,7 @@ def create_indexes(conn):
         ("idx_items_date", "items", "ItemDate"),
         # Customers table
         ("idx_customers_id", "customers", "CustomerID_Std"),
+        ("idx_customers_raw_id", "customers", "CustomerID_Raw"),
         # Customer quality table
         ("idx_cust_quality_id", "customer_quality", "CustomerID_Std"),
         ("idx_cust_quality_month", "customer_quality", "OrderCohortMonth"),

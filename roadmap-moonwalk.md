@@ -3,7 +3,7 @@ project: moonwalk
 type: roadmap
 status: active
 created: 2026-02-16
-updated: 2026-02-20 (v6.0 — post Tock 10A)
+updated: 2026-02-21 (v6.1 — post Tick 11)
 ---
 
 # Moonwalk Analytics — Master Project Roadmap
@@ -57,6 +57,8 @@ This roadmap serves the **analytics layer** of the SME Internal Operating System
 | **Tick 7B** | **Feature** | **Dashboard enhancements: URL tab selection (`activate_tab_from_url()` in `dashboard_shared.py` + all 4 pages); PDF report download (`generate_report.py`, fpdf2, button in EP Snapshot); RFM segment definitions panel (6 colored cards in Segmentation expander); Notion links updated with `?tab=` params. 164 total tests (`test_report.py`, 4 new). Roadmap v5.8.** |
 | **Tick 10** | **Feature** | **Prefect orchestration + Notion KPI database: `moonwalk_flow.py` (4 tasks: validate CSVs, ETL, DuckDB, Notion narrative + KPI DB), `notion_kpi_push.py` (last 6 months + 13 weeks upserted to Notion database, auto-create on first run), `NOTION_KPI_DB_ID` in `config.py`, `prefect>=3.0` in `pyproject.toml`. 4 new flow tests. 168 total tests. Launcher restructured: Workflows (Prefect [1] / Legacy [2]) → Refresh (flow, dashboard, CLI fallback) → Utilities; `refresh_moonwalk_data.ps1` removed from primary stream, accessible via Launcher [2] only. Decision: openpyxl not viable as Excel COM replacement — cannot refresh PowerPivot connections; Excel leg stays legacy-only with no planned investment.** |
 | **Tock 10A** | **Quality** | **First-run operational fixes: removed `input()` blocking calls from `cleancloud_to_excel_MASTER.py` (was blocking Prefect mid-flow); added per-step timing + performance summary to `moonwalk_flow.py`; distinct launcher labels for workflow entries (was `>> COMBINED <<` for both); fixed Notion KPI SQL (`s.IsCurrentMonth` → `s.OrderCohortMonth < date_trunc(...)`, `s.IsCurrentISOWeek` → `p.IsCurrentISOWeek` via existing dim_period join); DuckDB `.tmp` retry loop (5×1s) in `cleancloud_to_duckdb.py`; `.tmp` promotion in `Start-Dashboard.ps1` before freshness check to avoid double-rebuild; `NOTION_KPI_DB_ID` saved to `secrets.toml`. First complete end-to-end Prefect run: 18.7s total.** |
+| **Tock 10B** | **Quality** | **Railway deploy + Appsmith Employee Directory: `requirements-api.txt`, `nixpacks.toml`, `seed_employees.py` (8 demo employees, idempotent lifespan seeding), `RAILWAY_API_URL` in config, `appsmith/setup.md`. FastAPI live at `moonwalk-api-production.up.railway.app`. 171 total tests (+3 seed tests).** |
+| **Tick 11** | **Feature** | **Notion Intelligence Layer upgrade: weekly insights (8 WoW rules in `insights` table with `granularity` column); EP snapshot as colored callout cards (💰 Revenue / 👥 Customers / 🧺 Items / 🚚 Stops with color-coded MoM/YoY percentages); `📈 Executive Pulse` and `📊 Latest Insights` toggles on portal page; `_find_or_create_toggle()` generic helper; `_resolve_db_path()` for `.tmp` handling; Notion KPI database push removed from flow. Total flow time: ~26s. Fixed: Notion API version pin, insights fan-out CTE bug, weekly period date-parsing.** |
 
 ### Items Resolved (Previously Listed as Open)
 
@@ -468,6 +470,43 @@ Cross-cutting: CSV export on every page (st.download_button)
 
 ---
 
+### Tick 11 — Notion Intelligence Layer — COMPLETED 2026-02-21
+
+**Focus:** Upgrade the Notion portal from a plain KPI table to a rich, real-time intelligence layer: weekly signals alongside monthly insights, and an EP snapshot rendered as colored callout cards directly from DuckDB.
+**Scope:** `cleancloud_to_duckdb.py`, `notion_push.py`, `moonwalk_flow.py`. No new tests.
+
+| # | Item | Details | Status |
+|---|------|---------|--------|
+| 11.1 | **Weekly insights in DuckDB** | Added `granularity VARCHAR DEFAULT 'monthly'` column to `insights` table. New `_create_weekly_insights()` generates 8 WoW rules for the last completed ISO week: `WRev_WOW`, `WRev_TREND` (vs 4-wk avg), `WCust_WOW`, `WStops_WOW`, `WItems_WOW`, `WProcessing`, `WCollection_Rate`, `WDelivery_Rate`. | Done |
+| 11.2 | **Weekly signals in Notion** | `_fetch_weekly_context()` reads latest `granularity = 'weekly'` rules; `_build_weekly_callout()` formats them as rule-based (no LLM) callout with ✅⚠️ℹ️ icons. Appended to `📊 Latest Insights` toggle after the 4 persona blocks. | Done |
+| 11.3 | **EP snapshot as callout cards** | `_fetch_ep_snapshot()` queries last completed month's Revenue, Customers, Items, Stops with MoM and YoY from DuckDB. `_build_ep_blocks()` produces 5 blocks: gray timestamp header + 4 colored callouts (💰 purple, 👥 blue, 🧺 green, 🚚 red) with bold metric/value and color-coded percentages (green positive, red negative, gray missing). | Done |
+| 11.4 | **`📈 Executive Pulse` toggle on portal** | New `_find_or_create_toggle()` generic helper (replaces duplicated `_find_or_create_insights_toggle()` logic). EP snapshot pushed on every flow run to its own toggle — no database storage needed. | Done |
+| 11.5 | **Remove KPI database push from flow** | `push_notion_kpi_database` task removed from `moonwalk_flow.py`. `notion_kpi_push.py` kept as standalone script. Flow now: validate → ETL → DuckDB → Notion narrative. ~26s total (was ~55s). | Done |
+| 11.6 | **`_resolve_db_path()` in flow** | Helper returns `.tmp` path if newer than live DB (e.g. when dashboard holds write lock). Notion tasks patch `module.DB_PATH` to the resolved path before calling `run()`. | Done |
+| 11.7 | **Bug fixes** | (a) Notion API version pin: `notion_version="2022-06-28"` on `Client` + `client.request()` for `databases/query` (retired in Notion-Version 2025-09-03). (b) Fan-out bug in `insights_latest` CTE: added `QUALIFY ROW_NUMBER() OVER (PARTITION BY ins.period ORDER BY ins.rule_id) = 1`. (c) Weekly period date-parsing: `WHERE granularity = 'monthly'` added to both `FROM insights` subqueries in `_fetch_context()` to prevent `"2026-W07"` from reaching `CAST(... || '-01' AS DATE)`. | Done |
+
+**Notion portal after Tick 11:**
+```
+📈 Executive Pulse (toggle)
+  🔄 Jan 2026  ·  Updated 21 Feb 2026
+  💰 Revenue    / Dhs 36,921  / MoM +X%  · YoY —   (purple background)
+  👥 Customers  / 301         / MoM -10% · YoY —   (blue background)
+  🧺 Items      / 1,234       / MoM +X%  · YoY —   (green background)
+  🚚 Stops      / 584         / MoM -X%  · YoY —   (red background)
+
+📊 Latest Insights (toggle)
+  🔄 Updated 21 Feb 2026  |  2026-01 + 2026-W07
+  🎯 Executive Pulse  [3 LLM bullets + link]
+  👥 Customer Analytics [3 LLM bullets + link]
+  🚚 Operations Center  [3 LLM bullets + link]
+  💰 Financial Performance [3 LLM bullets + link]
+  📆 Weekly Signals — 2026-W07 [8 rule-based WoW signals]
+```
+
+**Results:** 171 tests unchanged. Flow: 26.3s total. Cloud deployed master `7dc1d9b`.
+
+---
+
 ### Tick 7B — Dashboard Enhancements ✅ Completed 2026-02-19
 
 **Focus:** Second-wave features that build on the Tick 7 persona structure.
@@ -684,12 +723,16 @@ DONE
 ├── Tock 7B: Security — password gate + DuckDB AES-256 encryption (2026-02-18)
 ├── Tick 7: Persona-based dashboard redesign — 4 pages, 15 tabs (2026-02-19)
 ├── Tick 8: Closed periods, UI polish, Notion portal + LLM narrative pipeline (2026-02-19)
-└── Tock 8: Playwright rewrite (4-page), 12 dead pages deleted, 147 tests (2026-02-19)
+├── Tock 8: Playwright rewrite (4-page), 12 dead pages deleted, 147 tests (2026-02-19)
+├── Tick 7B: Dashboard enhancements (URL tabs, PDF report, RFM defs) (2026-02-19)
+├── Tick 9: FastAPI + Appsmith infrastructure (Railway deploy, 13 tests) (2026-02-19)
+├── Tick 10: Prefect orchestration + Notion KPI database (2026-02-20)
+├── Tock 10A: First-run operational fixes (2026-02-20)
+├── Tock 10B: Railway deploy + Appsmith Employee Directory (2026-02-20)
+└── Tick 11: Notion Intelligence Layer — weekly insights, EP snapshot cards, KPI DB removed from flow (2026-02-21)
 │
-NOW (POC — operational layer)
-├── Tick 9: Appsmith operational UI (outstanding balances, customer lookup)
-├── Tick 10: Prefect orchestration + Notion KPI database (LLM narrative push done in Tick 8)
-└── Tick 7B: Dashboard enhancements (URL tabs, PDF report, RFM defs) ✅ DONE
+NOW (POC — wrap-up)
+└── Appsmith Employee Directory: manual build in Appsmith Cloud (steps in appsmith/setup.md)
 
 NEXT (Postgres Migration — dedicated cycle)
 ├── Postgres schema + Alembic migrations
