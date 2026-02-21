@@ -30,7 +30,7 @@ def fetch_customer_insights_batch(_con, months_tuple):
     cust_df = _con.execute(f"""
         SELECT p.YearMonth,
             COUNT(DISTINCT cq.CustomerID_Std) AS active_customers,
-            COUNT(DISTINCT CASE WHEN cq.Is_Multi_Service = 1
+            COUNT(DISTINCT CASE WHEN cq.Is_Multi_Service = TRUE
                   THEN cq.CustomerID_Std END) AS multi_service
         FROM customer_quality cq
         JOIN dim_period p ON cq.OrderCohortMonth = p.Date
@@ -196,14 +196,14 @@ def fetch_logistics_batch(_con, periods_tuple):
     # Query 1: Headlines
     head_df = _con.execute(f"""
         SELECT {period_col} AS period,
-            SUM(s.HasDelivery) + SUM(s.HasPickup) AS total_stops,
-            SUM(CASE WHEN s.HasDelivery = 1 THEN s.Pieces ELSE 0 END) AS items_delivered,
-            SUM(CASE WHEN s.HasDelivery = 1 THEN s.Total_Num ELSE 0 END) AS delivery_revenue,
+            SUM(s.HasDelivery::INT) + SUM(s.HasPickup::INT) AS total_stops,
+            SUM(CASE WHEN s.HasDelivery THEN s.Pieces ELSE 0 END) AS items_delivered,
+            SUM(CASE WHEN s.HasDelivery THEN s.Total_Num ELSE 0 END) AS delivery_revenue,
             SUM(s.Total_Num) AS total_revenue,
-            SUM(s.HasDelivery) AS deliveries,
-            SUM(s.HasPickup) AS pickups,
-            SUM(CASE WHEN s.HasDelivery = 1 THEN s.Total_Num ELSE 0 END)
-                / NULLIF(SUM(s.HasDelivery), 0) AS rev_per_delivery
+            SUM(s.HasDelivery::INT) AS deliveries,
+            SUM(s.HasPickup::INT) AS pickups,
+            SUM(CASE WHEN s.HasDelivery THEN s.Total_Num ELSE 0 END)
+                / NULLIF(SUM(s.HasDelivery::INT), 0) AS rev_per_delivery
         FROM sales s
         JOIN dim_period p ON {sales_join}
         WHERE s.Earned_Date IS NOT NULL
@@ -215,8 +215,8 @@ def fetch_logistics_batch(_con, periods_tuple):
     geo_df = _con.execute(f"""
         SELECT {period_col} AS period, s.Route_Category,
             COUNT(DISTINCT s.CustomerID_Std) AS customers,
-            SUM(CASE WHEN s.HasDelivery = 1 THEN s.Pieces ELSE 0 END) AS items,
-            SUM(s.HasDelivery) + SUM(s.HasPickup) AS stops,
+            SUM(CASE WHEN s.HasDelivery THEN s.Pieces ELSE 0 END) AS items,
+            SUM(s.HasDelivery::INT) + SUM(s.HasPickup::INT) AS stops,
             SUM(s.Total_Num) AS revenue
         FROM sales s
         JOIN dim_period p ON {sales_join}
@@ -527,7 +527,7 @@ def fetch_reactivation_batch(_con, months_tuple):
         ),
         reactivated AS (
             SELECT CustomerID_Std, month_date FROM with_lag
-            WHERE prev_month IS NOT NULL AND DATEDIFF('month', prev_month, month_date) >= 3
+            WHERE prev_month IS NOT NULL AND month_date >= prev_month + INTERVAL '3 months'
         )
         SELECT p.YearMonth, COUNT(DISTINCT r.CustomerID_Std) AS reactivated_customers
         FROM reactivated r JOIN dim_period p ON r.month_date = p.Date
@@ -553,11 +553,11 @@ def fetch_rfm_snapshot(_con, selected_period):
             FROM dim_period p WHERE p.YearMonth = '{selected_period}'
         ),
         cutoff AS (
-            SELECT DATE_TRUNC('month', anchor_date - INTERVAL 6 MONTH) AS from_date
+            SELECT DATE_TRUNC('month', anchor_date - INTERVAL '6 months') AS from_date
             FROM period_anchor
         )
         SELECT s.CustomerID_Std,
-               DATEDIFF('day', MAX(s.Earned_Date), (SELECT anchor_date FROM period_anchor)) AS recency,
+               ((SELECT anchor_date FROM period_anchor) - MAX(s.Earned_Date)) AS recency,
                COUNT(DISTINCT s.OrderID_Std) AS frequency,
                SUM(s.Total_Num) AS monetary
         FROM sales s
@@ -629,7 +629,7 @@ def fetch_outstanding(_con):
                COUNT(*) AS order_count,
                SUM(s.Total_Num) AS total_outstanding,
                MIN(s.Placed_Date) AS oldest_order_date,
-               MAX(DATEDIFF('day', s.Placed_Date, CURRENT_DATE)) AS max_days_outstanding
+               MAX((CURRENT_DATE - s.Placed_Date)) AS max_days_outstanding
         FROM sales s JOIN customers c ON s.CustomerID_Std = c.CustomerID_Std
         WHERE s.Paid = FALSE AND s.Source = 'CC_2025' AND s.Earned_Date IS NOT NULL
         GROUP BY s.CustomerID_Std, c.CustomerName
@@ -639,7 +639,7 @@ def fetch_outstanding(_con):
 
     oldest20_df = _con.execute("""
         SELECT s.CustomerID_Std, c.CustomerName, s.OrderID_Std, s.Placed_Date, s.Total_Num,
-               DATEDIFF('day', s.Placed_Date, CURRENT_DATE) AS days_outstanding
+               (CURRENT_DATE - s.Placed_Date) AS days_outstanding
         FROM sales s JOIN customers c ON s.CustomerID_Std = c.CustomerID_Std
         WHERE s.Paid = FALSE AND s.Source = 'CC_2025' AND s.Earned_Date IS NOT NULL
         ORDER BY days_outstanding DESC LIMIT 20
@@ -647,18 +647,18 @@ def fetch_outstanding(_con):
 
     aging_df = _con.execute("""
         SELECT CASE
-            WHEN DATEDIFF('day', Placed_Date, CURRENT_DATE) <= 30 THEN '0-30 days'
-            WHEN DATEDIFF('day', Placed_Date, CURRENT_DATE) <= 60 THEN '31-60 days'
-            WHEN DATEDIFF('day', Placed_Date, CURRENT_DATE) <= 90 THEN '61-90 days'
+            WHEN (CURRENT_DATE - Placed_Date) <= 30 THEN '0-30 days'
+            WHEN (CURRENT_DATE - Placed_Date) <= 60 THEN '31-60 days'
+            WHEN (CURRENT_DATE - Placed_Date) <= 90 THEN '61-90 days'
             ELSE '90+ days' END AS bucket,
             COUNT(*) AS orders, SUM(Total_Num) AS amount
         FROM sales WHERE Paid = FALSE AND Source = 'CC_2025' AND Earned_Date IS NOT NULL
-        GROUP BY bucket ORDER BY MIN(DATEDIFF('day', Placed_Date, CURRENT_DATE))
+        GROUP BY bucket ORDER BY MIN(CURRENT_DATE - Placed_Date)
     """).df()
 
     all_orders_df = _con.execute("""
         SELECT s.CustomerID_Std, c.CustomerName, s.OrderID_Std, s.Placed_Date, s.Total_Num,
-               DATEDIFF('day', s.Placed_Date, CURRENT_DATE) AS days_outstanding
+               (CURRENT_DATE - s.Placed_Date) AS days_outstanding
         FROM sales s JOIN customers c ON s.CustomerID_Std = c.CustomerID_Std
         WHERE s.Paid = FALSE AND s.Source = 'CC_2025' AND s.Earned_Date IS NOT NULL
         ORDER BY days_outstanding DESC

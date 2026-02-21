@@ -5,6 +5,7 @@ Provides: DB connection, Dirham formatting, card rendering, SQL measures,
 trend chart rendering, global CSS injection, and month selector.
 """
 
+import re
 import streamlit as st
 import duckdb
 import plotly.graph_objects as go
@@ -18,7 +19,262 @@ from pathlib import Path
 # DATA PATHS (centralized in config.py)
 # =====================================================================
 
-from config import SALES_CSV, ITEMS_CSV, DIMPERIOD_CSV, DB_PATH, LOGS_PATH, DUCKDB_KEY
+from config import (
+    SALES_CSV,
+    ITEMS_CSV,
+    DIMPERIOD_CSV,
+    DB_PATH,
+    LOGS_PATH,
+    DUCKDB_KEY,
+    ANALYTICS_DATABASE_URL,
+)
+
+# Use Postgres when ANALYTICS_DATABASE_URL is configured (Tock M parallel-run).
+# Falls back to DuckDB when the URL is absent (local dev without secrets.toml).
+_IS_POSTGRES = bool(ANALYTICS_DATABASE_URL)
+
+
+# =====================================================================
+# POSTGRES COMPATIBILITY LAYER  (Tock M — Phase M3)
+# =====================================================================
+
+# SQL keywords / function names that must NOT be double-quoted by the preprocessor.
+_PG_KEYWORDS = frozenset(
+    {
+        # DML / DDL
+        "SELECT",
+        "FROM",
+        "WHERE",
+        "JOIN",
+        "ON",
+        "AND",
+        "OR",
+        "NOT",
+        "IN",
+        "IS",
+        "NULL",
+        "TRUE",
+        "FALSE",
+        "AS",
+        "BY",
+        "GROUP",
+        "ORDER",
+        "HAVING",
+        "LIMIT",
+        "DISTINCT",
+        "WITH",
+        "UNION",
+        "ALL",
+        "INSERT",
+        "INTO",
+        "VALUES",
+        "UPDATE",
+        "SET",
+        "DELETE",
+        "TRUNCATE",
+        "CREATE",
+        "TABLE",
+        "INDEX",
+        "DROP",
+        "ALTER",
+        "CASCADE",
+        "RESTART",
+        "IDENTITY",
+        "INNER",
+        "LEFT",
+        "RIGHT",
+        "OUTER",
+        "CROSS",
+        "FULL",
+        "LATERAL",
+        "EXISTS",
+        "BETWEEN",
+        "LIKE",
+        "ILIKE",
+        # Aggregate / window functions
+        "COUNT",
+        "SUM",
+        "AVG",
+        "MIN",
+        "MAX",
+        "COALESCE",
+        "NULLIF",
+        "CAST",
+        "PERCENTILE_CONT",
+        "PERCENTILE_DISC",
+        "WITHIN",
+        "OVER",
+        "PARTITION",
+        "ROW_NUMBER",
+        "LAG",
+        "LEAD",
+        "RANK",
+        "DENSE_RANK",
+        # Date / time functions
+        "DATE_TRUNC",
+        "DATE_PART",
+        "EXTRACT",
+        "AGE",
+        "NOW",
+        "CURRENT_DATE",
+        "CURRENT_TIMESTAMP",
+        "INTERVAL",
+        # Conditional
+        "CASE",
+        "WHEN",
+        "THEN",
+        "ELSE",
+        "END",
+        # Type names (used in CAST / :: casts)
+        "INT",
+        "INTEGER",
+        "SMALLINT",
+        "BIGINT",
+        "FLOAT",
+        "DOUBLE",
+        "PRECISION",
+        "NUMERIC",
+        "DECIMAL",
+        "TEXT",
+        "VARCHAR",
+        "CHAR",
+        "BOOLEAN",
+        "BOOL",
+        "DATE",
+        "TIMESTAMP",
+        "TIME",
+        "BYTEA",
+        "SERIAL",
+        "BIGSERIAL",
+        # Sorting / nullability
+        "ASC",
+        "DESC",
+        "NULLS",
+        "FIRST",
+        "LAST",
+        # Date-part keywords
+        "YEAR",
+        "MONTH",
+        "DAY",
+        "HOUR",
+        "MINUTE",
+        "SECOND",
+        "EPOCH",
+        "DOW",
+        "DOY",
+        "WEEK",
+        "QUARTER",
+        # Misc
+        "PRIMARY",
+        "KEY",
+        "FOREIGN",
+        "UNIQUE",
+        "DEFAULT",
+        "CONSTRAINT",
+        "RETURNING",
+        "CONFLICT",
+        "DO",
+        "NOTHING",
+    }
+)
+
+
+def _pg_quote_identifiers(sql: str) -> str:
+    """Add double-quotes around mixed-case column/table identifiers for Postgres.
+
+    Postgres folds unquoted identifiers to lowercase, so a column created as
+    "CustomerID_Std" must be queried as "CustomerID_Std" (double-quoted).
+    DuckDB is case-insensitive and also accepts ANSI double-quoting, so this
+    transformation is safe for both backends.
+
+    Rules:
+    - Already-quoted strings (both "..." and '...') are left untouched.
+    - SQL keywords and all-lowercase identifiers are left untouched.
+    - Any unquoted alphanumeric/underscore token that contains an uppercase
+      letter and is not a known SQL keyword is wrapped in double-quotes.
+    """
+    tokens = re.split(
+        r'("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|\s+|[,()\[\]{}.:;=<>!+\-*/])',
+        sql,
+    )
+    out = []
+    for tok in tokens:
+        if not tok:
+            out.append(tok)
+        elif tok[0] in ('"', "'"):
+            # Already-quoted literal — preserve as-is
+            out.append(tok)
+        elif re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", tok):
+            # Plain identifier — quote if mixed-case and not a SQL keyword
+            if any(c.isupper() for c in tok) and tok.upper() not in _PG_KEYWORDS:
+                out.append(f'"{tok}"')
+            else:
+                out.append(tok)
+        else:
+            out.append(tok)
+    return "".join(out)
+
+
+class _PgResult:
+    """Wraps a pending SQLAlchemy query with DuckDB-compatible .df()/.fetchone()."""
+
+    __slots__ = ("_engine", "_sql", "_params")
+
+    def __init__(self, engine, sql: str, params: dict):
+        self._engine = engine
+        self._sql = sql
+        self._params = params
+
+    def df(self):
+        import pandas as pd
+        from sqlalchemy import text
+
+        with self._engine.connect() as conn:
+            result = conn.execute(text(self._sql), self._params)
+            rows = result.fetchall()
+            return pd.DataFrame(rows, columns=list(result.keys()))
+
+    def fetchone(self):
+        from sqlalchemy import text
+
+        with self._engine.connect() as conn:
+            result = conn.execute(text(self._sql), self._params)
+            return result.fetchone()
+
+    def fetchall(self):
+        from sqlalchemy import text
+
+        with self._engine.connect() as conn:
+            result = conn.execute(text(self._sql), self._params)
+            return result.fetchall()
+
+
+class _PgFacade:
+    """Wraps a SQLAlchemy engine with a DuckDB-compatible .execute() interface.
+
+    On each .execute() call:
+      1. Runs _pg_quote_identifiers() to add double-quotes around mixed-case
+         column names so Postgres can resolve them correctly.
+      2. Converts DuckDB-style positional params ($1, $2 …) to SQLAlchemy
+         named params (:p1, :p2 …).
+    """
+
+    __slots__ = ("_engine",)
+
+    def __init__(self, engine):
+        self._engine = engine
+
+    def execute(self, sql: str, params=None):
+        pg_sql = _pg_quote_identifiers(sql)
+        if params:
+            # Replace $N in reverse order to avoid $1 matching inside $10, etc.
+            for i in range(len(params), 0, -1):
+                pg_sql = pg_sql.replace(f"${i}", f":p{i}")
+            param_dict = {f"p{i}": v for i, v in enumerate(params, 1)}
+        else:
+            param_dict = {}
+        return _PgResult(self._engine, pg_sql, param_dict)
+
 
 _dash_logger = logging.getLogger("dashboard.profiling")
 
@@ -833,11 +1089,20 @@ def is_weekly(period_str):
 
 @st.cache_resource
 def get_connection():
-    """Open the file-based analytics DuckDB (with indexes & views).
+    """Open analytics DB — Postgres when ANALYTICS_DATABASE_URL is set, else DuckDB.
 
     Falls back to in-memory CSV ingestion if the .duckdb file is missing
     or corrupted.  Shows st.error + st.stop if no data source is available.
     """
+    if _IS_POSTGRES:
+        from db.database import get_engine
+
+        engine = get_engine()
+        if engine is None:
+            st.error("ANALYTICS_DATABASE_URL configured but DB engine failed to initialize.")
+            st.stop()
+        return _PgFacade(engine)
+
     db_tmp = DB_PATH.with_suffix(".duckdb.tmp")
     db_file = None
 
@@ -938,11 +1203,11 @@ def fetch_measures(con, period):
         f"""
         SELECT
             COALESCE(SUM(sub.qty), 0),
-            COALESCE(SUM(CASE WHEN sub.iss = 0 THEN sub.qty END), 0),
-            COALESCE(SUM(CASE WHEN sub.iss = 1 THEN sub.qty END), 0)
+            COALESCE(SUM(CASE WHEN sub.iss = FALSE THEN sub.qty END), 0),
+            COALESCE(SUM(CASE WHEN sub.iss = TRUE THEN sub.qty END), 0)
         FROM (
             SELECT i.Quantity AS qty,
-                   COALESCE(ol.IsSubscriptionService, 0) AS iss
+                   COALESCE(ol.IsSubscriptionService, FALSE) AS iss
             FROM items i
             JOIN dim_period p ON i.ItemDate = p.Date
             LEFT JOIN order_lookup ol ON i.OrderID_Std = ol.OrderID_Std
@@ -960,11 +1225,11 @@ def fetch_measures(con, period):
         SELECT
             COALESCE(SUM(s.Total_Num), 0),
             COALESCE(SUM(CASE
-                WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = 0
+                WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = FALSE
                 THEN s.Total_Num END), 0),
             COALESCE(SUM(CASE
                 WHEN s.Transaction_Type = 'Subscription' THEN s.Total_Num
-                WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = 1
+                WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = TRUE
                 THEN s.Total_Num END), 0)
         FROM sales s
         JOIN dim_period p ON {sales_join}
@@ -980,8 +1245,8 @@ def fetch_measures(con, period):
     stops_row = con.execute(
         f"""
         SELECT
-            COALESCE(SUM(s.HasDelivery), 0),
-            COALESCE(SUM(s.HasPickup), 0)
+            COALESCE(SUM(s.HasDelivery::INT), 0),
+            COALESCE(SUM(s.HasPickup::INT), 0)
         FROM sales s
         JOIN dim_period p ON {sales_join}
         WHERE s.Earned_Date IS NOT NULL
@@ -1034,11 +1299,11 @@ def fetch_measures_batch(_con, periods_tuple):
     items_df = _con.execute(f"""
         SELECT sub.period,
                COALESCE(SUM(sub.qty), 0) AS items_total,
-               COALESCE(SUM(CASE WHEN sub.iss = 0 THEN sub.qty END), 0) AS items_client,
-               COALESCE(SUM(CASE WHEN sub.iss = 1 THEN sub.qty END), 0) AS items_sub
+               COALESCE(SUM(CASE WHEN sub.iss = FALSE THEN sub.qty END), 0) AS items_client,
+               COALESCE(SUM(CASE WHEN sub.iss = TRUE THEN sub.qty END), 0) AS items_sub
         FROM (
             SELECT {period_col} AS period, i.Quantity AS qty,
-                   COALESCE(ol.IsSubscriptionService, 0) AS iss
+                   COALESCE(ol.IsSubscriptionService, FALSE) AS iss
             FROM items i
             JOIN dim_period p ON i.ItemDate = p.Date
             LEFT JOIN order_lookup ol ON i.OrderID_Std = ol.OrderID_Std
@@ -1051,11 +1316,11 @@ def fetch_measures_batch(_con, periods_tuple):
         SELECT {period_col} AS period,
                COALESCE(SUM(s.Total_Num), 0) AS rev_total,
                COALESCE(SUM(CASE
-                   WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = 0
+                   WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = FALSE
                    THEN s.Total_Num END), 0) AS rev_client,
                COALESCE(SUM(CASE
                    WHEN s.Transaction_Type = 'Subscription' THEN s.Total_Num
-                   WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = 1
+                   WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = TRUE
                    THEN s.Total_Num END), 0) AS rev_sub
         FROM sales s
         JOIN dim_period p ON {sales_join}
@@ -1066,8 +1331,8 @@ def fetch_measures_batch(_con, periods_tuple):
 
     stops_df = _con.execute(f"""
         SELECT {period_col} AS period,
-               COALESCE(SUM(s.HasDelivery), 0) AS deliveries,
-               COALESCE(SUM(s.HasPickup), 0) AS pickups
+               COALESCE(SUM(s.HasDelivery::INT), 0) AS deliveries,
+               COALESCE(SUM(s.HasPickup::INT), 0) AS pickups
         FROM sales s
         JOIN dim_period p ON {sales_join}
         WHERE s.Earned_Date IS NOT NULL
@@ -1583,7 +1848,7 @@ def period_selector(con, show_title=True):
                 FROM sales s
                 JOIN dim_period p ON s.Earned_Date = p.Date
                 WHERE s.Earned_Date IS NOT NULL
-                  AND p.IsCurrentISOWeek = 0
+                  AND p.IsCurrentISOWeek = FALSE
                 ORDER BY p.ISOWeekLabel
             """).df()
             if len(periods_df) == 0:
@@ -1596,7 +1861,7 @@ def period_selector(con, show_title=True):
                 FROM sales s
                 JOIN dim_period p ON s.OrderCohortMonth = p.Date
                 WHERE s.Earned_Date IS NOT NULL
-                  AND p.IsCurrentMonth = 0
+                  AND p.IsCurrentMonth = FALSE
                 ORDER BY p.YearMonth
             """).df()
             if len(periods_df) == 0:

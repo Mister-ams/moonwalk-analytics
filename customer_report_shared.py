@@ -45,11 +45,11 @@ def fetch_customer_measures_batch(_con, periods_tuple):
     items_df = _con.execute(f"""
         SELECT sub.period,
                COALESCE(SUM(sub.qty), 0) AS items_total,
-               COALESCE(SUM(CASE WHEN sub.iss = 0 THEN sub.qty END), 0) AS items_client,
-               COALESCE(SUM(CASE WHEN sub.iss = 1 THEN sub.qty END), 0) AS items_sub
+               COALESCE(SUM(CASE WHEN sub.iss = FALSE THEN sub.qty END), 0) AS items_client,
+               COALESCE(SUM(CASE WHEN sub.iss = TRUE THEN sub.qty END), 0) AS items_sub
         FROM (
             SELECT {period_col} AS period, i.Quantity AS qty,
-                   COALESCE(ol.IsSubscriptionService, 0) AS iss
+                   COALESCE(ol.IsSubscriptionService, FALSE) AS iss
             FROM items i
             JOIN dim_period p ON i.ItemDate = p.Date
             LEFT JOIN order_lookup ol ON i.OrderID_Std = ol.OrderID_Std
@@ -63,11 +63,11 @@ def fetch_customer_measures_batch(_con, periods_tuple):
         SELECT {period_col} AS period,
                COALESCE(SUM(s.Total_Num), 0) AS rev_total,
                COALESCE(SUM(CASE
-                   WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = 0
+                   WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = FALSE
                    THEN s.Total_Num END), 0) AS rev_client,
                COALESCE(SUM(CASE
                    WHEN s.Transaction_Type = 'Subscription' THEN s.Total_Num
-                   WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = 1
+                   WHEN s.Transaction_Type = 'Order' AND s.IsSubscriptionService = TRUE
                    THEN s.Total_Num END), 0) AS rev_sub
         FROM sales s
         JOIN dim_period p ON {sales_join}
