@@ -80,14 +80,13 @@ def _fetch_monthly(con) -> list[dict]:
             GROUP BY i.ItemCohortMonth
         ),
         insights_latest AS (
-            SELECT ins.period, ins.category, ins.sentiment
+            SELECT ins.period, ins.sentiment
             FROM insights ins
             WHERE ins.period IN (
                 SELECT strftime(period_date, '%Y-%m') FROM base
             )
               AND ins.category = 'revenue'
-            ORDER BY ins.period DESC, ins.rule_id
-            LIMIT 7
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY ins.period ORDER BY ins.rule_id) = 1
         )
         SELECT
             b.period_label,
@@ -155,7 +154,6 @@ def _fetch_weekly(con) -> list[dict]:
         WITH sales_weekly AS (
             SELECT
                 p.ISOWeekLabel                                  AS period_label,
-                p.ISOYearWeek                                   AS iso_year_week,
                 COUNT(DISTINCT s.CustomerID_Std)                AS customers,
                 SUM(s.Total_Num)                                AS revenue,
                 SUM(s.HasDelivery::INT + s.HasPickup::INT)      AS stops,
@@ -166,27 +164,26 @@ def _fetch_weekly(con) -> list[dict]:
             FROM sales s
             JOIN dim_period p ON s.Earned_Date = p.Date
             WHERE s.Is_Earned = TRUE AND p.IsCurrentISOWeek = FALSE
-            GROUP BY p.ISOWeekLabel, p.ISOYearWeek
+            GROUP BY p.ISOWeekLabel
         ),
         items_weekly AS (
-            SELECT p.ISOYearWeek, SUM(i.Quantity) AS items
+            SELECT p.ISOWeekLabel, SUM(i.Quantity) AS items
             FROM items i
             JOIN dim_period p ON i.ItemDate = p.Date
             WHERE p.IsCurrentISOWeek = FALSE
-            GROUP BY p.ISOYearWeek
+            GROUP BY p.ISOWeekLabel
         )
-        SELECT sw.period_label, sw.iso_year_week, sw.customers, sw.revenue,
+        SELECT sw.period_label, sw.customers, sw.revenue,
                sw.stops, sw.subscriptions, sw.collections, sw.avg_processing_days,
                COALESCE(iw.items, 0) AS items
         FROM sales_weekly sw
-        LEFT JOIN items_weekly iw ON sw.iso_year_week = iw.ISOYearWeek
-        ORDER BY sw.iso_year_week DESC
+        LEFT JOIN items_weekly iw ON sw.period_label = iw.ISOWeekLabel
+        ORDER BY sw.period_label DESC
         LIMIT 14
     """).fetchall()
 
     cols = [
         "period_label",
-        "iso_year_week",
         "customers",
         "revenue",
         "stops",
@@ -331,13 +328,18 @@ def _upsert_row(notion_client, db_id: str, row: dict, log):
     period = row["period_label"]
     granularity = row["granularity"]
 
-    response = notion_client.databases.query(
-        database_id=db_id,
-        filter={
-            "and": [
-                {"property": "Period", "title": {"equals": period}},
-                {"property": "Granularity", "select": {"equals": granularity}},
-            ]
+    # notion-client 2.x uses Notion-Version 2025-09-03 which retired databases.query.
+    # We pin notion_version="2022-06-28" on the Client and call the endpoint via request().
+    response = notion_client.request(
+        path=f"databases/{db_id}/query",
+        method="POST",
+        body={
+            "filter": {
+                "and": [
+                    {"property": "Period", "title": {"equals": period}},
+                    {"property": "Granularity", "select": {"equals": granularity}},
+                ]
+            }
         },
     )
     props = _build_properties(row, NOTION_TOKEN)
@@ -371,7 +373,7 @@ def run(log=print):
 
     from notion_client import Client
 
-    notion_client = Client(auth=NOTION_API_KEY)
+    notion_client = Client(auth=NOTION_API_KEY, notion_version="2022-06-28")
 
     db_id = _ensure_database(notion_client, log)
     if not db_id:
