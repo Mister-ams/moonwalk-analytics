@@ -30,7 +30,14 @@ _PERSONA_CONFIG = [
     ("executive_pulse", "🎯", "Executive Pulse", "yellow_background", "", "snapshot"),
     ("customer_analytics", "👥", "Customer Analytics", "green_background", "customer_analytics", "segmentation"),
     ("operations_center", "🚚", "Operations Center", "blue_background", "operations_center", "logistics"),
-    ("financial_performance", "💰", "Financial Performance", "purple_background", "financial_performance", "collections"),
+    (
+        "financial_performance",
+        "💰",
+        "Financial Performance",
+        "purple_background",
+        "financial_performance",
+        "collections",
+    ),
 ]
 
 
@@ -48,8 +55,8 @@ def _open_db():
 
 
 def _fetch_context(con) -> dict:
-    """Fetch current period KPIs + insights rules for the LLM prompt."""
-    period_row = con.execute("SELECT MAX(period) FROM insights").fetchone()
+    """Fetch current period KPIs + monthly insights rules for the LLM prompt."""
+    period_row = con.execute("SELECT MAX(period) FROM insights WHERE granularity = 'monthly'").fetchone()
     if not period_row or period_row[0] is None:
         raise ValueError("No rows in insights table — run cleancloud_to_duckdb.py first")
     period = period_row[0]
@@ -58,7 +65,7 @@ def _fetch_context(con) -> dict:
         """
         SELECT category, headline, detail, sentiment
         FROM insights
-        WHERE period = ?
+        WHERE period = ? AND granularity = 'monthly'
         ORDER BY category, rule_id
         """,
         [period],
@@ -77,10 +84,10 @@ def _fetch_context(con) -> dict:
             FROM sales
             WHERE Is_Earned = 1
               AND OrderCohortMonth IN (
-                  SELECT CAST(MAX(period) || '-01' AS DATE) FROM insights
+                  SELECT CAST(MAX(period) || '-01' AS DATE) FROM insights WHERE granularity = 'monthly'
                   UNION ALL
                   SELECT DATE_TRUNC('month', CAST(MAX(period) || '-01' AS DATE) - INTERVAL '1 month')::DATE
-                  FROM insights
+                  FROM insights WHERE granularity = 'monthly'
               )
             GROUP BY OrderCohortMonth
         )
@@ -89,6 +96,46 @@ def _fetch_context(con) -> dict:
     ).fetchall()
 
     return {"period": period, "rules": rules, "kpis": kpis}
+
+
+def _fetch_weekly_context(con) -> dict | None:
+    """Fetch the latest completed ISO week's insights. Returns None if unavailable."""
+    row = con.execute("SELECT MAX(period) FROM insights WHERE granularity = 'weekly'").fetchone()
+    if not row or not row[0]:
+        return None
+    week = row[0]
+    rules = con.execute(
+        "SELECT rule_id, category, headline, sentiment FROM insights "
+        "WHERE granularity = 'weekly' AND period = ? ORDER BY category, rule_id",
+        [week],
+    ).fetchall()
+    return {"week": week, "rules": rules}
+
+
+def _build_weekly_callout(wctx: dict) -> dict:
+    """Build a single Notion callout block for the weekly signals (rule-based, no LLM)."""
+    SENTIMENT_ICON = {"positive": "\u2705", "negative": "\u26a0\ufe0f", "neutral": "\u2139\ufe0f"}
+    lines = []
+    for rule_id, category, headline, sentiment in wctx["rules"]:
+        icon = SENTIMENT_ICON.get(sentiment, "\u2022")
+        lines.append(f"  {icon}  {headline}")
+    bullet_text = "\n".join(lines)
+    return {
+        "object": "block",
+        "type": "callout",
+        "callout": {
+            "rich_text": [
+                {
+                    "type": "text",
+                    "text": {"content": f"Weekly Signals — {wctx['week']}\n"},
+                    "annotations": {"bold": True},
+                },
+                {"type": "text", "text": {"content": bullet_text}},
+            ],
+            "icon": {"type": "emoji", "emoji": "\U0001f4c6"},
+            "color": "default",
+        },
+    }
 
 
 def _build_prompt(ctx: dict) -> str:
@@ -263,6 +310,7 @@ def run(log=print):
     con = _open_db()
     try:
         ctx = _fetch_context(con)
+        wctx = _fetch_weekly_context(con)
     finally:
         con.close()
 
@@ -287,8 +335,11 @@ def run(log=print):
 
     ts = datetime.datetime.now().strftime("%d %b %Y %H:%M")
     blocks = _build_insight_blocks(ts, ctx["period"], sections, notion_token=NOTION_TOKEN)
+    if wctx:
+        blocks.append(_build_weekly_callout(wctx))
     notion_client.blocks.children.append(container_id, children=blocks)
-    log(f"Notion push: done - {ctx['period']} ({len(blocks)} blocks published)")
+    weekly_note = f" + {wctx['week']}" if wctx else ""
+    log(f"Notion push: done - {ctx['period']}{weekly_note} ({len(blocks)} blocks published)")
 
 
 if __name__ == "__main__":

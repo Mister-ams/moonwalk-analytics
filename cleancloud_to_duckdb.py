@@ -513,11 +513,11 @@ def validate_data(conn):
 # =====================================================================
 
 
-def _insert_insight(conn, period, rule_id, category, headline, detail, sentiment):
+def _insert_insight(conn, period, rule_id, category, headline, detail, sentiment, granularity="monthly"):
     """Insert a single insight row."""
     conn.execute(
-        "INSERT INTO insights VALUES (?,?,?,?,?,?)",
-        [period, rule_id, category, headline, detail, sentiment],
+        "INSERT INTO insights VALUES (?,?,?,?,?,?,?)",
+        [period, rule_id, category, headline, detail, sentiment, granularity],
     )
 
 
@@ -531,12 +531,13 @@ def create_insights_table(conn):
     conn.execute("DROP TABLE IF EXISTS insights")
     conn.execute("""
         CREATE TABLE insights (
-            period    VARCHAR,
-            rule_id   VARCHAR,
-            category  VARCHAR,
-            headline  VARCHAR,
-            detail    VARCHAR,
-            sentiment VARCHAR
+            period      VARCHAR,
+            rule_id     VARCHAR,
+            category    VARCHAR,
+            headline    VARCHAR,
+            detail      VARCHAR,
+            sentiment   VARCHAR,
+            granularity VARCHAR DEFAULT 'monthly'
         )
     """)
 
@@ -1023,7 +1024,218 @@ def create_insights_table(conn):
         )
         count += 1
 
-    logger.info(f"  [OK] {count} insights generated for {current_period}")
+    logger.info(f"  [OK] {count} monthly insights generated for {current_period}")
+    _create_weekly_insights(conn)
+
+
+def _create_weekly_insights(conn):
+    """Generate 8 WoW insight rules for the last completed ISO week."""
+    row = conn.execute("""
+        SELECT ISOWeekLabel FROM dim_period
+        WHERE IsCurrentISOWeek = FALSE AND Date <= CURRENT_DATE
+        ORDER BY ISOWeekLabel DESC LIMIT 1
+    """).fetchone()
+    if not row:
+        logger.info("  [SKIP] No completed ISO weeks found — skipping weekly insights")
+        return
+    cur_week = row[0]
+
+    prior_row = conn.execute(f"""
+        SELECT ISOWeekLabel FROM dim_period
+        WHERE IsCurrentISOWeek = FALSE AND ISOWeekLabel < '{cur_week}'
+        ORDER BY ISOWeekLabel DESC LIMIT 1
+    """).fetchone()
+    prior_week = prior_row[0] if prior_row else None
+
+    count = 0
+
+    # WRev_WOW — Revenue week-over-week
+    if prior_week:
+        r = conn.execute(f"""
+            SELECT
+                SUM(CASE WHEN p.ISOWeekLabel = '{cur_week}'   THEN s.Total_Num ELSE 0 END) AS cur_rev,
+                SUM(CASE WHEN p.ISOWeekLabel = '{prior_week}' THEN s.Total_Num ELSE 0 END) AS prev_rev
+            FROM sales s JOIN dim_period p ON s.Earned_Date = p.Date
+            WHERE s.Is_Earned = TRUE AND p.ISOWeekLabel IN ('{cur_week}', '{prior_week}')
+        """).fetchone()
+        if r and r[1] and r[1] > 0:
+            pct = (r[0] - r[1]) / r[1] * 100
+            sentiment = "positive" if pct > 2 else ("negative" if pct < -2 else "neutral")
+            _insert_insight(
+                conn,
+                cur_week,
+                "WRev_WOW",
+                "revenue",
+                f"Revenue {pct:+.0f}% vs last week",
+                f"Dhs {r[0]:,.0f} this week vs Dhs {r[1]:,.0f} last week",
+                sentiment,
+                granularity="weekly",
+            )
+            count += 1
+
+    # WRev_TREND — Revenue vs 4-week rolling average
+    r = conn.execute(f"""
+        WITH wk AS (
+            SELECT p.ISOWeekLabel, SUM(s.Total_Num) AS rev
+            FROM sales s JOIN dim_period p ON s.Earned_Date = p.Date
+            WHERE s.Is_Earned = TRUE AND p.IsCurrentISOWeek = FALSE
+            GROUP BY p.ISOWeekLabel
+            ORDER BY p.ISOWeekLabel DESC LIMIT 5
+        )
+        SELECT
+            MAX(CASE WHEN ISOWeekLabel = '{cur_week}' THEN rev END) AS cur_rev,
+            AVG(CASE WHEN ISOWeekLabel != '{cur_week}' THEN rev END) AS avg_4wk
+        FROM wk
+    """).fetchone()
+    if r and r[0] is not None and r[1] is not None and r[1] > 0:
+        pct = (r[0] - r[1]) / r[1] * 100
+        sentiment = "positive" if pct > 5 else ("negative" if pct < -5 else "neutral")
+        _insert_insight(
+            conn,
+            cur_week,
+            "WRev_TREND",
+            "revenue",
+            f"Revenue {pct:+.0f}% vs 4-week average",
+            f"Dhs {r[0]:,.0f} this week vs Dhs {r[1]:,.0f} avg",
+            sentiment,
+            granularity="weekly",
+        )
+        count += 1
+
+    # WCust_WOW — Active customers week-over-week
+    if prior_week:
+        r = conn.execute(f"""
+            SELECT
+                COUNT(DISTINCT CASE WHEN p.ISOWeekLabel = '{cur_week}'   THEN s.CustomerID_Std END) AS cur,
+                COUNT(DISTINCT CASE WHEN p.ISOWeekLabel = '{prior_week}' THEN s.CustomerID_Std END) AS prev
+            FROM sales s JOIN dim_period p ON s.Earned_Date = p.Date
+            WHERE s.Is_Earned = TRUE AND p.ISOWeekLabel IN ('{cur_week}', '{prior_week}')
+        """).fetchone()
+        if r and r[1] and r[1] > 0:
+            pct = (r[0] - r[1]) / r[1] * 100
+            sentiment = "positive" if pct > 0 else "negative"
+            _insert_insight(
+                conn,
+                cur_week,
+                "WCust_WOW",
+                "customers",
+                f"Active customers {pct:+.0f}% vs last week",
+                f"{r[0]:,} customers this week vs {r[1]:,} last week",
+                sentiment,
+                granularity="weekly",
+            )
+            count += 1
+
+    # WStops_WOW — Total stops week-over-week
+    if prior_week:
+        r = conn.execute(f"""
+            SELECT
+                SUM(CASE WHEN p.ISOWeekLabel = '{cur_week}'   THEN s.HasDelivery::INT + s.HasPickup::INT ELSE 0 END) AS cur,
+                SUM(CASE WHEN p.ISOWeekLabel = '{prior_week}' THEN s.HasDelivery::INT + s.HasPickup::INT ELSE 0 END) AS prev
+            FROM sales s JOIN dim_period p ON s.Earned_Date = p.Date
+            WHERE s.Is_Earned = TRUE AND p.ISOWeekLabel IN ('{cur_week}', '{prior_week}')
+        """).fetchone()
+        if r and r[1] and r[1] > 0:
+            pct = (r[0] - r[1]) / r[1] * 100
+            sentiment = "positive" if pct > 0 else "negative"
+            _insert_insight(
+                conn,
+                cur_week,
+                "WStops_WOW",
+                "operations",
+                f"Stops {pct:+.0f}% vs last week",
+                f"{r[0]:,} stops this week vs {r[1]:,} last week",
+                sentiment,
+                granularity="weekly",
+            )
+            count += 1
+
+    # WItems_WOW — Items processed week-over-week
+    if prior_week:
+        r = conn.execute(f"""
+            SELECT
+                SUM(CASE WHEN p.ISOWeekLabel = '{cur_week}'   THEN i.Quantity ELSE 0 END) AS cur,
+                SUM(CASE WHEN p.ISOWeekLabel = '{prior_week}' THEN i.Quantity ELSE 0 END) AS prev
+            FROM items i JOIN dim_period p ON i.ItemDate = p.Date
+            WHERE p.ISOWeekLabel IN ('{cur_week}', '{prior_week}')
+        """).fetchone()
+        if r and r[1] and r[1] > 0:
+            pct = (r[0] - r[1]) / r[1] * 100
+            sentiment = "positive" if pct > 0 else "negative"
+            _insert_insight(
+                conn,
+                cur_week,
+                "WItems_WOW",
+                "operations",
+                f"Items {pct:+.0f}% vs last week",
+                f"{r[0]:,} items this week vs {r[1]:,} last week",
+                sentiment,
+                granularity="weekly",
+            )
+            count += 1
+
+    # WProcessing — Avg processing days
+    r = conn.execute(f"""
+        SELECT AVG(s.Processing_Days) AS avg_proc
+        FROM sales s JOIN dim_period p ON s.Earned_Date = p.Date
+        WHERE s.Is_Earned = TRUE AND s.Processing_Days IS NOT NULL AND p.ISOWeekLabel = '{cur_week}'
+    """).fetchone()
+    if r and r[0] is not None:
+        sentiment = "negative" if r[0] > 3.0 else "positive"
+        _insert_insight(
+            conn,
+            cur_week,
+            "WProcessing",
+            "operations",
+            f"Avg processing: {r[0]:.1f} days{'  — above target' if r[0] > 3.0 else ''}",
+            f"Average order processing time in {cur_week}",
+            sentiment,
+            granularity="weekly",
+        )
+        count += 1
+
+    # WCollection_Rate — Collections / revenue this week
+    r = conn.execute(f"""
+        SELECT SUM(s.Collections) AS coll, SUM(s.Total_Num) AS rev
+        FROM sales s JOIN dim_period p ON s.Earned_Date = p.Date
+        WHERE s.Is_Earned = TRUE AND p.ISOWeekLabel = '{cur_week}'
+    """).fetchone()
+    if r and r[1] and r[1] > 0:
+        rate = r[0] / r[1] * 100
+        sentiment = "positive" if rate >= 90 else ("negative" if rate < 70 else "neutral")
+        _insert_insight(
+            conn,
+            cur_week,
+            "WCollection_Rate",
+            "payments",
+            f"Collection rate: {rate:.0f}% of revenue collected",
+            f"Dhs {r[0]:,.0f} collected of Dhs {r[1]:,.0f} earned in {cur_week}",
+            sentiment,
+            granularity="weekly",
+        )
+        count += 1
+
+    # WDelivery_Rate — Delivery share of total stops
+    r = conn.execute(f"""
+        SELECT SUM(s.HasDelivery::INT) AS del, SUM(s.HasPickup::INT) AS pck
+        FROM sales s JOIN dim_period p ON s.Earned_Date = p.Date
+        WHERE s.Is_Earned = TRUE AND p.ISOWeekLabel = '{cur_week}'
+    """).fetchone()
+    if r and r[0] is not None and r[1] is not None and (r[0] + r[1]) > 0:
+        rate = r[0] / (r[0] + r[1]) * 100
+        _insert_insight(
+            conn,
+            cur_week,
+            "WDelivery_Rate",
+            "operations",
+            f"Delivery rate: {rate:.0f}% ({r[0]:,} deliveries, {r[1]:,} pickups)",
+            f"Total stops: {r[0] + r[1]:,} in {cur_week}",
+            "neutral",
+            granularity="weekly",
+        )
+        count += 1
+
+    logger.info(f"  [OK] {count} weekly insights generated for {cur_week}")
 
 
 # =====================================================================

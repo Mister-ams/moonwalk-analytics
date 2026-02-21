@@ -291,7 +291,9 @@ with tab2:
 # ─── INSIGHTS TAB ────────────────────────────────────────────────────
 with tab3:
     try:
-        insights_df = con.execute("SELECT * FROM insights ORDER BY category, rule_id").df()
+        insights_df = con.execute(
+            "SELECT * FROM insights WHERE granularity = 'monthly' ORDER BY category, rule_id"
+        ).df()
     except Exception:
         insights_df = None
     if insights_df is None:
