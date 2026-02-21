@@ -25,7 +25,7 @@ from config import DB_PATH, DUCKDB_KEY, NOTION_API_KEY, NOTION_PAGE_ID, NOTION_T
 
 _BASE_URL = "https://loomi-performance-analytics.streamlit.app"
 _INSIGHTS_HEADING = "📊 Latest Insights"
-_EP_HEADING = "📈 Executive Pulse"
+_EP_HEADING = "📈 Headline Indicators"
 
 _PERSONA_CONFIG = [
     ("executive_pulse", "🎯", "Executive Pulse", "yellow_background", "", "snapshot"),
@@ -199,12 +199,100 @@ def _fetch_ep_snapshot(con) -> dict | None:
     }
 
 
-def _build_ep_blocks(ep: dict, ts: str) -> list:
+def _fetch_ep_weekly_snapshot(con) -> dict | None:
+    """Fetch last completed ISO week EP metrics with WoW comparison.
+
+    For customers, returns new customers (first earned order in the week)
+    rather than active customers — weekly active count is too noisy.
+    """
+    rows = con.execute("""
+        WITH cur_week AS (
+            SELECT MAX(p.ISOWeekLabel) AS w
+            FROM sales s
+            JOIN dim_period p ON s.Earned_Date = p.Date
+            WHERE s.Is_Earned = TRUE AND p.IsCurrentISOWeek = FALSE
+        ),
+        prev_week AS (
+            SELECT MAX(p.ISOWeekLabel) AS w
+            FROM sales s
+            JOIN dim_period p ON s.Earned_Date = p.Date
+            WHERE s.Is_Earned = TRUE AND p.IsCurrentISOWeek = FALSE
+              AND p.ISOWeekLabel < (SELECT w FROM cur_week)
+        ),
+        target_weeks AS (SELECT w FROM cur_week UNION ALL SELECT w FROM prev_week),
+        sales_weekly AS (
+            SELECT
+                p.ISOWeekLabel                               AS week,
+                ROUND(SUM(s.Total_Num), 0)                  AS revenue,
+                SUM(s.HasDelivery::INT + s.HasPickup::INT)  AS stops
+            FROM sales s
+            JOIN dim_period p ON s.Earned_Date = p.Date
+            WHERE s.Is_Earned = TRUE AND p.ISOWeekLabel IN (SELECT w FROM target_weeks)
+            GROUP BY p.ISOWeekLabel
+        ),
+        items_weekly AS (
+            SELECT p.ISOWeekLabel AS week, SUM(i.Quantity) AS items
+            FROM items i
+            JOIN dim_period p ON i.ItemDate = p.Date
+            WHERE p.ISOWeekLabel IN (SELECT w FROM target_weeks)
+            GROUP BY p.ISOWeekLabel
+        ),
+        first_order AS (
+            SELECT CustomerID_Std, MIN(Earned_Date) AS first_date
+            FROM sales WHERE Is_Earned = TRUE
+            GROUP BY CustomerID_Std
+        ),
+        new_custs AS (
+            SELECT p.ISOWeekLabel AS week, COUNT(*) AS new_customers
+            FROM first_order fo
+            JOIN dim_period p ON fo.first_date = p.Date
+            WHERE p.ISOWeekLabel IN (SELECT w FROM target_weeks)
+            GROUP BY p.ISOWeekLabel
+        )
+        SELECT
+            sw.week,
+            COALESCE(nc.new_customers, 0) AS new_customers,
+            COALESCE(iw.items, 0)         AS items,
+            sw.revenue,
+            sw.stops,
+            (SELECT w FROM cur_week)  AS cur_week,
+            (SELECT w FROM prev_week) AS prev_week
+        FROM sales_weekly sw
+        LEFT JOIN items_weekly iw ON sw.week = iw.week
+        LEFT JOIN new_custs nc     ON sw.week = nc.week
+        ORDER BY sw.week DESC
+    """).fetchall()
+
+    if not rows:
+        return None
+
+    cur_week_label = rows[0][5]
+    prev_week_label = rows[0][6]
+
+    cols = ["new_customers", "items", "revenue", "stops"]
+    by_week = {row[0]: dict(zip(cols, row[1:5])) for row in rows}
+
+    cur = by_week.get(cur_week_label, {})
+    prev = by_week.get(prev_week_label, {})
+
+    def pct_chg(cur_val, ref_val):
+        if not ref_val:
+            return None
+        return round((cur_val / ref_val - 1) * 100, 1)
+
+    return {
+        "week": cur_week_label,
+        "current": cur,
+        "wow": {k: pct_chg(cur.get(k, 0), prev.get(k)) for k in cols},
+    }
+
+
+def _build_ep_blocks(ep: dict, ts: str, week: dict | None = None) -> list:
     """Build colored callout cards for EP snapshot: timestamp header + 4 metric cards.
 
-    Each card uses a colored Notion callout with:
-      - Bold metric name + value on lines 1-2
-      - MoM and YoY as color-coded percentages (green/red/gray) on line 3
+    Each card shows monthly KPIs (MoM + YoY). If week data is provided, a second
+    line per card shows the latest closed ISO week (WoW). The Customers card uses
+    new customers for the weekly row instead of active customers.
     """
     cur = ep["current"]
     mom = ep["mom"]
@@ -215,6 +303,8 @@ def _build_ep_blocks(ep: dict, ts: str) -> list:
             return "—"
         if key == "revenue":
             return f"Dhs {float(val):,.0f}"
+        if key == "new_customers":
+            return f"{int(val):,} new"
         return f"{int(val):,}"
 
     def pct_rt(val) -> list:
@@ -225,11 +315,12 @@ def _build_ep_blocks(ep: dict, ts: str) -> list:
         color = "green" if val > 0 else "red" if val < 0 else "gray"
         return [{"type": "text", "text": {"content": f"{sign}{val:.1f}%"}, "annotations": {"color": color}}]
 
+    # (monthly_key, weekly_key, emoji, label, color)
     METRICS = [
-        ("revenue", "💰", "Revenue", "purple_background"),
-        ("customers", "👥", "Customers", "blue_background"),
-        ("items", "🧺", "Items", "green_background"),
-        ("stops", "🚚", "Stops", "red_background"),
+        ("revenue", "revenue", "💰", "Revenue", "purple_background"),
+        ("customers", "new_customers", "👥", "Customers", "blue_background"),
+        ("items", "items", "🧺", "Items", "green_background"),
+        ("stops", "stops", "🚚", "Stops", "red_background"),
     ]
 
     blocks = [
@@ -244,17 +335,28 @@ def _build_ep_blocks(ep: dict, ts: str) -> list:
         }
     ]
 
-    for key, emoji, label, color in METRICS:
+    for m_key, w_key, emoji, label, color in METRICS:
         rich_text = (
             [
                 {"type": "text", "text": {"content": f"{label}\n"}, "annotations": {"bold": True}},
-                {"type": "text", "text": {"content": f"{fmt_val(key, cur.get(key))}\n"}, "annotations": {"bold": True}},
+                {
+                    "type": "text",
+                    "text": {"content": f"{fmt_val(m_key, cur.get(m_key))}\n"},
+                    "annotations": {"bold": True},
+                },
                 {"type": "text", "text": {"content": "MoM  "}},
             ]
-            + pct_rt(mom.get(key))
+            + pct_rt(mom.get(m_key))
             + [{"type": "text", "text": {"content": "   ·   YoY  "}}]
-            + pct_rt(yoy.get(key))
+            + pct_rt(yoy.get(m_key))
         )
+        if week:
+            rich_text += [
+                {
+                    "type": "text",
+                    "text": {"content": f"\n{week['week']}  {fmt_val(w_key, week['current'].get(w_key))}   WoW  "},
+                }
+            ] + pct_rt(week["wow"].get(w_key))
         blocks.append(
             {
                 "object": "block",
@@ -471,6 +573,7 @@ def run(log=print):
         ctx = _fetch_context(con)
         wctx = _fetch_weekly_context(con)
         ep = _fetch_ep_snapshot(con)
+        ep_week = _fetch_ep_weekly_snapshot(con)
     finally:
         con.close()
 
@@ -496,7 +599,7 @@ def run(log=print):
         log(f"Notion push: updating EP snapshot ({ep['period']})...")
         ep_toggle_id = _find_or_create_toggle(notion_client, NOTION_PAGE_ID, _EP_HEADING, log)
         _clear_block_children(notion_client, ep_toggle_id)
-        notion_client.blocks.children.append(ep_toggle_id, children=_build_ep_blocks(ep, ts))
+        notion_client.blocks.children.append(ep_toggle_id, children=_build_ep_blocks(ep, ts, week=ep_week))
         log("Notion push: EP snapshot published")
 
     # Push LLM insights + weekly signals

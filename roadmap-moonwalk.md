@@ -731,10 +731,7 @@ DONE
 ├── Tock 10B: Railway deploy + Appsmith Employee Directory (2026-02-20)
 └── Tick 11: Notion Intelligence Layer — weekly insights, EP snapshot cards, KPI DB removed from flow (2026-02-21)
 │
-NOW (POC — wrap-up)
-└── Appsmith Employee Directory: manual build in Appsmith Cloud (steps in appsmith/setup.md)
-
-NEXT (Postgres Migration — dedicated cycle)
+NOW (Postgres Migration — dedicated cycle)
 ├── Postgres schema + Alembic migrations
 ├── Materialized views for dashboard aggregations
 ├── ETL writes to Postgres (+ CSV for Excel compat)
