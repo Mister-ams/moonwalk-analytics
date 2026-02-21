@@ -87,7 +87,7 @@ def _fetch_monthly(con) -> list[dict]:
             )
               AND ins.category = 'revenue'
             ORDER BY ins.period DESC, ins.rule_id
-            LIMIT 6
+            LIMIT 7
         )
         SELECT
             b.period_label,
@@ -106,97 +106,131 @@ def _fetch_monthly(con) -> list[dict]:
         LEFT JOIN items_agg ia     ON ia.period_label = b.period_label
         LEFT JOIN insights_latest il ON strftime(b.period_date, '%Y-%m') = il.period
         ORDER BY b.period_date DESC
-        LIMIT 6
+        LIMIT 7
     """).fetchall()
 
     cols = [
-        "period_label", "period_date", "revenue", "customers", "new_customers",
-        "items", "stops", "subscriptions", "collections", "avg_processing_days",
+        "period_label",
+        "period_date",
+        "revenue",
+        "customers",
+        "new_customers",
+        "items",
+        "stops",
+        "subscriptions",
+        "collections",
+        "avg_processing_days",
         "revenue_trend",
     ]
+    # Process oldest-first so vs_prior correctly compares each period to the one before it.
+    # rows is newest-first (DESC); reverse, compute, take last 6, reverse back.
+    rows_asc = list(reversed(rows))
     result = []
     prev_revenue = None
     prev_customers = None
-    for row in rows:
+    for row in rows_asc:
         d = dict(zip(cols, row))
         d["granularity"] = "Monthly"
         d["revenue_vs_prior"] = (
-            round((d["revenue"] / prev_revenue - 1) * 100, 1)
-            if prev_revenue and prev_revenue > 0
-            else None
+            round((d["revenue"] / prev_revenue - 1) * 100, 1) if prev_revenue and prev_revenue > 0 else None
         )
         d["customers_vs_prior"] = (
-            round((d["customers"] / prev_customers - 1) * 100, 1)
-            if prev_customers and prev_customers > 0
-            else None
+            round((d["customers"] / prev_customers - 1) * 100, 1) if prev_customers and prev_customers > 0 else None
         )
         d["collection_rate"] = (
-            round(d["collections"] / d["revenue"] * 100, 1)
-            if d["revenue"] and d["revenue"] > 0
-            else None
+            round(d["collections"] / d["revenue"] * 100, 1) if d["revenue"] and d["revenue"] > 0 else None
         )
         prev_revenue = d["revenue"]
         prev_customers = d["customers"]
         result.append(d)
 
+    result = result[-6:]  # drop oldest anchor month, keep 6 most recent
+    result.reverse()  # newest-first for Notion display
     return result
 
 
 def _fetch_weekly(con) -> list[dict]:
     """Return last 13 closed ISO weeks of core KPIs, newest first."""
     rows = con.execute("""
-        SELECT
-            p.ISOWeekLabel                                  AS period_label,
-            p.ISOYearWeek                                   AS iso_year_week,
-            COUNT(DISTINCT s.CustomerID_Std)                AS customers,
-            SUM(s.Total_Num)                                AS revenue,
-            SUM(s.HasDelivery::INT + s.HasPickup::INT)      AS stops,
-            COUNT(DISTINCT CASE WHEN s.IsSubscriptionService THEN s.CustomerID_Std END)
-                                                            AS subscriptions,
-            SUM(s.Collections)                              AS collections,
-            AVG(s.Processing_Days)                          AS avg_processing_days,
-            SUM(i2.Quantity)                                AS items
-        FROM sales s
-        JOIN dim_period p ON s.Earned_Date = p.Date
-        LEFT JOIN items i2 ON i2.ItemDate = s.Earned_Date
-        WHERE s.Is_Earned = TRUE AND p.IsCurrentISOWeek = FALSE
-        GROUP BY p.ISOWeekLabel, p.ISOYearWeek
-        ORDER BY p.ISOYearWeek DESC
+        WITH sales_weekly AS (
+            SELECT
+                p.ISOWeekLabel                                  AS period_label,
+                p.ISOYearWeek                                   AS iso_year_week,
+                COUNT(DISTINCT s.CustomerID_Std)                AS customers,
+                SUM(s.Total_Num)                                AS revenue,
+                SUM(s.HasDelivery::INT + s.HasPickup::INT)      AS stops,
+                COUNT(DISTINCT CASE WHEN s.IsSubscriptionService THEN s.CustomerID_Std END)
+                                                                AS subscriptions,
+                SUM(s.Collections)                              AS collections,
+                AVG(s.Processing_Days)                          AS avg_processing_days
+            FROM sales s
+            JOIN dim_period p ON s.Earned_Date = p.Date
+            WHERE s.Is_Earned = TRUE AND p.IsCurrentISOWeek = FALSE
+            GROUP BY p.ISOWeekLabel, p.ISOYearWeek
+        ),
+        items_weekly AS (
+            SELECT p.ISOYearWeek, SUM(i.Quantity) AS items
+            FROM items i
+            JOIN dim_period p ON i.ItemDate = p.Date
+            WHERE p.IsCurrentISOWeek = FALSE
+            GROUP BY p.ISOYearWeek
+        )
+        SELECT sw.period_label, sw.iso_year_week, sw.customers, sw.revenue,
+               sw.stops, sw.subscriptions, sw.collections, sw.avg_processing_days,
+               COALESCE(iw.items, 0) AS items
+        FROM sales_weekly sw
+        LEFT JOIN items_weekly iw ON sw.iso_year_week = iw.ISOYearWeek
+        ORDER BY sw.iso_year_week DESC
         LIMIT 14
     """).fetchall()
 
     cols = [
-        "period_label", "iso_year_week", "customers", "revenue",
-        "stops", "subscriptions", "collections", "avg_processing_days", "items",
+        "period_label",
+        "iso_year_week",
+        "customers",
+        "revenue",
+        "stops",
+        "subscriptions",
+        "collections",
+        "avg_processing_days",
+        "items",
     ]
+    # Process oldest-first so vs_prior correctly compares each week to the one before it.
+    rows_asc = list(reversed(rows))
     result = []
     prev_revenue = None
     prev_customers = None
-    for row in rows:
+    for row in rows_asc:
         d = dict(zip(cols, row))
         d["granularity"] = "Weekly"
         d["new_customers"] = None
-        d["revenue_trend"] = None
         d["revenue_vs_prior"] = (
-            round((d["revenue"] / prev_revenue - 1) * 100, 1)
-            if prev_revenue and prev_revenue > 0
-            else None
+            round((d["revenue"] / prev_revenue - 1) * 100, 1) if prev_revenue and prev_revenue > 0 else None
         )
         d["customers_vs_prior"] = (
-            round((d["customers"] / prev_customers - 1) * 100, 1)
-            if prev_customers and prev_customers > 0
-            else None
+            round((d["customers"] / prev_customers - 1) * 100, 1) if prev_customers and prev_customers > 0 else None
         )
         d["collection_rate"] = (
-            round(d["collections"] / d["revenue"] * 100, 1)
-            if d["revenue"] and d["revenue"] > 0
+            round(d["collections"] / d["revenue"] * 100, 1) if d["revenue"] and d["revenue"] > 0 else None
+        )
+        # Derive revenue_trend from week-over-week change (no monthly insights table for weekly)
+        rvp = d["revenue_vs_prior"]
+        d["revenue_trend"] = (
+            "positive"
+            if rvp is not None and rvp > 2
+            else "negative"
+            if rvp is not None and rvp < -2
+            else "neutral"
+            if rvp is not None
             else None
         )
         prev_revenue = d["revenue"]
         prev_customers = d["customers"]
         result.append(d)
 
-    return result[:13]
+    result = result[-13:]  # drop oldest anchor week, keep 13 most recent
+    result.reverse()  # newest-first for Notion display
+    return result
 
 
 # =====================================================================
@@ -244,7 +278,7 @@ def _ensure_database(notion_client, log) -> str | None:
         new_id = result["id"]
         log(
             f"Notion KPI: created database '{_DB_TITLE}' (id={new_id}). "
-            f"Add NOTION_KPI_DB_ID = \"{new_id}\" to .streamlit/secrets.toml."
+            f'Add NOTION_KPI_DB_ID = "{new_id}" to .streamlit/secrets.toml.'
         )
         return new_id
     except Exception as exc:

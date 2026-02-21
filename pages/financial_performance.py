@@ -306,10 +306,12 @@ with tab4:
         st.success("No outstanding orders.")
     else:
         total_out = outstanding.get("total_outstanding", 0)
+        customer_count = outstanding.get("customer_count", 0)
         st.markdown(
             f"<div style='font-size:1.4rem;font-weight:700;margin-bottom:0.25rem;'>"
             f"{dirham_html(total_out, size=28)} outstanding</div>"
-            f"<div style='color:#888;font-size:0.85rem;margin-bottom:1rem;'>{order_count:,} orders</div>",
+            f"<div style='color:#888;font-size:0.85rem;margin-bottom:1rem;'>"
+            f"{order_count:,} orders &nbsp;·&nbsp; {customer_count:,} customers</div>",
             unsafe_allow_html=True,
         )
         st.caption("CC_2025 orders with Paid = FALSE. Legacy orders excluded (assumed paid).")
@@ -332,12 +334,35 @@ with tab4:
                         unsafe_allow_html=True,
                     )
 
-        # Top 20 outstanding orders
-        top20_df = outstanding.get("top20")
-        if top20_df is not None and len(top20_df) > 0:
+        # By customer (top 20 by amount)
+        by_customer_df = outstanding.get("by_customer")
+        if by_customer_df is not None and len(by_customer_df) > 0:
             st.markdown("")
-            render_section_heading("Longest Outstanding Orders", hdr)
-            display_df = top20_df[
+            render_section_heading("By Customer (Top 20 by Amount)", hdr)
+            display_cust = by_customer_df[
+                ["CustomerName", "order_count", "total_outstanding", "oldest_order_date", "max_days_outstanding"]
+            ].copy()
+            display_cust["total_outstanding"] = display_cust["total_outstanding"].apply(lambda v: f"Dhs {v:,.0f}")
+            st.dataframe(
+                display_cust.rename(
+                    columns={
+                        "CustomerName": "Customer",
+                        "order_count": "Orders",
+                        "total_outstanding": "Total Outstanding",
+                        "oldest_order_date": "Oldest Order",
+                        "max_days_outstanding": "Max Days",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        # Longest unpaid orders (top 20 by age)
+        oldest20_df = outstanding.get("oldest20")
+        if oldest20_df is not None and len(oldest20_df) > 0:
+            st.markdown("")
+            render_section_heading("Longest Unpaid Orders", hdr)
+            display_df = oldest20_df[
                 ["CustomerName", "OrderID_Std", "Placed_Date", "Total_Num", "days_outstanding"]
             ].copy()
             display_df["Total_Num"] = display_df["Total_Num"].apply(lambda v: f"Dhs {v:,.0f}")
@@ -359,11 +384,11 @@ with tab4:
 
     if order_count > 0:
         with st.expander("Download Data"):
-            top20_df = outstanding.get("top20")
-            if top20_df is not None:
+            all_orders_df = outstanding.get("all_orders")
+            if all_orders_df is not None:
                 st.download_button(
-                    "Download CSV",
-                    top20_df.to_csv(index=False).encode("utf-8"),
-                    "fp_outstanding.csv",
+                    f"Download all {order_count:,} outstanding orders (CSV)",
+                    all_orders_df.to_csv(index=False).encode("utf-8"),
+                    "fp_outstanding_all.csv",
                     "text/csv",
                 )

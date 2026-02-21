@@ -613,16 +613,31 @@ def fetch_pareto_data(_con, selected_period):
 
 @st.cache_data(ttl=300)
 def fetch_outstanding(_con):
-    """Fetch outstanding (Paid=FALSE, Source=CC_2025) order summary, aging, and top 20."""
+    """Fetch outstanding (Paid=FALSE, Source=CC_2025) order summary, aging, by-customer, and all orders."""
     _t0 = time.perf_counter()
 
     summary = _con.execute("""
-        SELECT COUNT(*) AS order_count, COALESCE(SUM(Total_Num), 0) AS total_outstanding
+        SELECT COUNT(*) AS order_count,
+               COALESCE(SUM(Total_Num), 0) AS total_outstanding,
+               COUNT(DISTINCT CustomerID_Std) AS customer_count
         FROM sales
         WHERE Paid = FALSE AND Source = 'CC_2025' AND Earned_Date IS NOT NULL
     """).fetchone()
 
-    top20_df = _con.execute("""
+    by_customer_df = _con.execute("""
+        SELECT s.CustomerID_Std, c.CustomerName,
+               COUNT(*) AS order_count,
+               SUM(s.Total_Num) AS total_outstanding,
+               MIN(s.Placed_Date) AS oldest_order_date,
+               MAX(DATEDIFF('day', s.Placed_Date, CURRENT_DATE)) AS max_days_outstanding
+        FROM sales s JOIN customers c ON s.CustomerID_Std = c.CustomerID_Std
+        WHERE s.Paid = FALSE AND s.Source = 'CC_2025' AND s.Earned_Date IS NOT NULL
+        GROUP BY s.CustomerID_Std, c.CustomerName
+        ORDER BY total_outstanding DESC
+        LIMIT 20
+    """).df()
+
+    oldest20_df = _con.execute("""
         SELECT s.CustomerID_Std, c.CustomerName, s.OrderID_Std, s.Placed_Date, s.Total_Num,
                DATEDIFF('day', s.Placed_Date, CURRENT_DATE) AS days_outstanding
         FROM sales s JOIN customers c ON s.CustomerID_Std = c.CustomerID_Std
@@ -641,10 +656,21 @@ def fetch_outstanding(_con):
         GROUP BY bucket ORDER BY MIN(DATEDIFF('day', Placed_Date, CURRENT_DATE))
     """).df()
 
+    all_orders_df = _con.execute("""
+        SELECT s.CustomerID_Std, c.CustomerName, s.OrderID_Std, s.Placed_Date, s.Total_Num,
+               DATEDIFF('day', s.Placed_Date, CURRENT_DATE) AS days_outstanding
+        FROM sales s JOIN customers c ON s.CustomerID_Std = c.CustomerID_Std
+        WHERE s.Paid = FALSE AND s.Source = 'CC_2025' AND s.Earned_Date IS NOT NULL
+        ORDER BY days_outstanding DESC
+    """).df()
+
     _log_query_time("fetch_outstanding", time.perf_counter() - _t0, 0)
     return {
         "order_count": int(summary[0]) if summary else 0,
         "total_outstanding": float(summary[1]) if summary else 0.0,
-        "top20": top20_df,
+        "customer_count": int(summary[2]) if summary else 0,
+        "by_customer": by_customer_df,
+        "oldest20": oldest20_df,
         "aging": aging_df,
+        "all_orders": all_orders_df,
     }
